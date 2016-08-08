@@ -4,6 +4,8 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+
+	"github.com/nhooyr/log"
 )
 
 type server struct {
@@ -17,28 +19,35 @@ type server struct {
 
 type backend struct {
 	name string
-	addr string
+	addr *net.TCPAddr
 }
 
-func (b *backend) handle(c1 net.Conn) {
-	c2, err := net.Dial("tcp", b.addr)
+func (b *backend) handle(c1 *tls.Conn, c *net.TCPConn) {
+	c2, err := net.DialTCP("tcp", nil, b.addr)
 	if err != nil {
 		c1.Close()
+		log.Print(err)
 		return
 	}
-	go copyClose(c1, c2)
-	copyClose(c2, c1)
+	go func() {
+		_, err := io.Copy(c2, c1)
+		if err != nil {
+			log.Print(err)
+		}
+		c2.CloseWrite()
+		c.CloseRead()
+	}()
+	_, err = io.Copy(c1, c2)
+	if err != nil {
+		log.Print(err)
+	}
+	c.CloseWrite()
+	c2.CloseRead()
 }
 
-func copyClose(dst io.WriteCloser, src io.ReadCloser) {
-	io.Copy(dst, src)
-	dst.Close()
-	src.Close()
-}
-
-func (s *server) serve(l net.Listener) {
+func (s *server) serve(l net.TCPListener) {
 	for {
-		c, err := l.Accept()
+		c, err := l.AcceptTCP()
 		if err != nil {
 			return
 		}
@@ -46,7 +55,7 @@ func (s *server) serve(l net.Listener) {
 	}
 }
 
-func (s *server) handle(c net.Conn) {
+func (s *server) handle(c *net.TCPConn) {
 	tc := tls.Server(c, s.config)
 	err := tc.Handshake()
 	if err != nil {
@@ -70,5 +79,5 @@ func (s *server) handle(c net.Conn) {
 			return
 		}
 	}
-	b.handle(tc)
+	b.handle(tc, c)
 }
