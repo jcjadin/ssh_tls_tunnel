@@ -124,7 +124,7 @@ func (p *proxy) handle(tc *net.TCPConn) {
 			return
 		}
 	}
-	logger.Printf("accepted %v for backend %s protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
+	logger.Printf("accepted %v for protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
 	defer logger.Printf("disconnected %v", raddr)
 	b.handle(c, tc)
 }
