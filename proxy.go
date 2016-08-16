@@ -136,6 +136,7 @@ type filteredBackend struct {
 	ServerNames []string `toml:"optional"`
 }
 
+// TODO improve
 func (fb *filteredBackend) Init() error {
 	if len(fb.Protocols) == 0 && len(fb.ServerNames) == 0 {
 		return errors.New("at least protocols or serverNames must be present")
@@ -162,8 +163,18 @@ type backend struct {
 	Addr string
 }
 
-func (b *backend) Init() error {
+func (b *backend) InitName() error {
+	if b.Name == "" {
+		return errors.New("cannot be empty")
+	}
 	b.Name += ": "
+	return nil
+}
+
+func (b *backend) InitAddr() error {
+	if b.Addr == "" {
+		return errors.New("cannot be empty")
+	}
 	return nil
 }
 
