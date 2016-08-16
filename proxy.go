@@ -13,8 +13,8 @@ import (
 type proxy struct {
 	Hostnames []string
 	Email     string `toml:"optional"`
-	Backends  []*filteredBackend
-	Fallback  *backend `toml:"optional"`
+	Fallback  *backend
+	Backends  []*filteredBackend `toml:"optional"`
 
 	// Map of protocols to servernames
 	protocols map[string]map[string]*backend
@@ -38,8 +38,32 @@ func (p *proxy) InitEmail() error {
 	return nil
 }
 
-func (p *proxy) InitBackends() error {
+func (p *proxy) InitFallback() error {
 	p.protocols = make(map[string]map[string]*backend)
+	p.protocols[""] = make(map[string]*backend)
+	p.protocols[""][""] = p.Fallback
+	return nil
+}
+
+type filteredBackend struct {
+	*backend
+	Protocols   []string `toml:"optional"`
+	ServerNames []string `toml:"optional"`
+}
+
+func (fb *filteredBackend) Init() error {
+	if len(fb.Protocols) == 0 && len(fb.ServerNames) == 0 {
+		return errors.New("at least protocols or serverNames must be present")
+	}
+	if len(fb.Protocols) == 0 {
+		fb.Protocols = append(fb.Protocols, "")
+	} else if len(fb.ServerNames) == 0 {
+		fb.ServerNames = append(fb.ServerNames, "")
+	}
+	return nil
+}
+
+func (p *proxy) InitBackends() error {
 	for _, fb := range p.Backends {
 		for _, proto := range fb.Protocols {
 			servers, ok := p.protocols[proto]
@@ -57,11 +81,6 @@ func (p *proxy) InitBackends() error {
 			p.config.NextProtos = append(p.config.NextProtos, proto)
 		}
 	}
-	return nil
-}
-
-func (p *proxy) InitFallback() error {
-	p.protocols[""][""] = p.Fallback
 	return nil
 }
 
@@ -100,9 +119,9 @@ func (p *proxy) listenAndServe() error {
 
 // TODO better logging
 func (p *proxy) handle(tc *net.TCPConn) {
+	raddr := tc.RemoteAddr()
 	tc.SetKeepAlive(true)
 	tc.SetKeepAlivePeriod(30 * time.Second)
-	raddr := tc.RemoteAddr()
 	c := tls.Server(tc, p.config)
 	err := c.Handshake()
 	if err != nil {
@@ -110,6 +129,8 @@ func (p *proxy) handle(tc *net.TCPConn) {
 		return
 	}
 	cs := c.ConnectionState()
+	logger.Printf("accepted %v for protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
+	defer logger.Printf("disconnected %v", raddr)
 	servers, ok := p.protocols[cs.NegotiatedProtocol]
 	if !ok {
 		servers, ok = p.protocols[""]
@@ -126,27 +147,7 @@ func (p *proxy) handle(tc *net.TCPConn) {
 			return
 		}
 	}
-	logger.Printf("accepted %v for protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
-	defer logger.Printf("disconnected %v", raddr)
 	b.handle(c, tc)
-}
-
-type filteredBackend struct {
-	*backend
-	Protocols   []string `toml:"optional"`
-	ServerNames []string `toml:"optional"`
-}
-
-func (fb *filteredBackend) Init() error {
-	if len(fb.Protocols) == 0 && len(fb.ServerNames) == 0 {
-		return errors.New("at least protocols or serverNames must be present")
-	}
-	if len(fb.Protocols) == 0 {
-		fb.Protocols = append(fb.Protocols, "")
-	} else if len(fb.ServerNames) == 0 {
-		fb.ServerNames = append(fb.ServerNames, "")
-	}
-	return nil
 }
 
 type backend struct {
