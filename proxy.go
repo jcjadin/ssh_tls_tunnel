@@ -11,10 +11,10 @@ import (
 )
 
 type proxy struct {
-	Certs    []string
-	Email    string `toml:"optional"`
-	Backends []*filteredBackend
-	Fallback *backend `toml:"optional"`
+	Hostnames []string
+	Email     string `toml:"optional"`
+	Backends  []*filteredBackend
+	Fallback  *backend `toml:"optional"`
 
 	// Map of protocols to servernames
 	protocols map[string]map[string]*backend
@@ -22,9 +22,9 @@ type proxy struct {
 	manager   *letsencrypt.Manager
 }
 
-func (p *proxy) InitCerts() error {
+func (p *proxy) InitHostnames() error {
 	p.manager = new(letsencrypt.Manager)
-	p.manager.SetHosts(p.Certs)
+	p.manager.SetHosts(p.Hostnames)
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
@@ -136,7 +136,6 @@ type filteredBackend struct {
 	ServerNames []string `toml:"optional"`
 }
 
-// TODO improve
 func (fb *filteredBackend) Init() error {
 	if len(fb.Protocols) == 0 && len(fb.ServerNames) == 0 {
 		return errors.New("at least protocols or serverNames must be present")
@@ -145,15 +144,6 @@ func (fb *filteredBackend) Init() error {
 		fb.Protocols = append(fb.Protocols, "")
 	} else if len(fb.ServerNames) == 0 {
 		fb.ServerNames = append(fb.ServerNames, "")
-	}
-	for _, name := range fb.Protocols {
-		if name == "" {
-			for _, name = range fb.ServerNames {
-				if name == "" {
-					return errors.New("empty string in protocols and serverName")
-				}
-			}
-		}
 	}
 	return nil
 }
@@ -164,17 +154,7 @@ type backend struct {
 }
 
 func (b *backend) InitName() error {
-	if b.Name == "" {
-		return errors.New("cannot be empty")
-	}
 	b.Name += ": "
-	return nil
-}
-
-func (b *backend) InitAddr() error {
-	if b.Addr == "" {
-		return errors.New("cannot be empty")
-	}
 	return nil
 }
 
