@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	"rsc.io/letsencrypt"
@@ -15,6 +14,7 @@ type proxy struct {
 	Certs    []string
 	Email    string `toml:"optional"`
 	Backends []*filteredBackend
+	// TODO should this be optional?
 	Fallback *backend
 
 	// Map of protocols to servernames
@@ -115,8 +115,6 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	tc.SetKeepAlive(true)
 	tc.SetKeepAlivePeriod(30 * time.Second)
 	raddr := tc.RemoteAddr()
-	logger.Printf("accepted %v", raddr)
-	defer logger.Printf("disconnected %v", raddr)
 	c := tls.Server(tc, p.config)
 	err := c.Handshake()
 	if err != nil {
@@ -124,7 +122,6 @@ func (p *proxy) handle(tc *net.TCPConn) {
 		return
 	}
 	cs := c.ConnectionState()
-	logger.Printf("%v requested protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
 	servers, ok := p.backends[cs.NegotiatedProtocol]
 	if !ok {
 		servers = p.backends[""]
@@ -133,6 +130,8 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	if !ok {
 		b, ok = servers[""]
 	}
+	logger.Printf("accepted %v for backend %s protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
+	defer logger.Printf("disconnected %v", raddr)
 	b.handle(c, tc)
 }
 
