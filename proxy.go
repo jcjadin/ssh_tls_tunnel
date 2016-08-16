@@ -14,13 +14,12 @@ type proxy struct {
 	Certs    []string
 	Email    string `toml:"optional"`
 	Backends []*filteredBackend
-	// TODO should this be optional?
-	Fallback *backend
+	Fallback *backend `toml:"optional"`
 
 	// Map of protocols to servernames
-	backends map[string]map[string]*backend
-	config   *tls.Config
-	manager  *letsencrypt.Manager
+	protocols map[string]map[string]*backend
+	config    *tls.Config
+	manager   *letsencrypt.Manager
 }
 
 func (p *proxy) InitCerts() error {
@@ -39,20 +38,20 @@ func (p *proxy) InitEmail() error {
 }
 
 func (p *proxy) InitBackends() error {
-	p.backends = make(map[string]map[string]*backend)
+	p.protocols = make(map[string]map[string]*backend)
 	for _, fb := range p.Backends {
 		for _, proto := range fb.Protocols {
-			servers, ok := p.backends[proto]
+			servers, ok := p.protocols[proto]
 			if !ok {
 				servers = make(map[string]*backend)
-				p.backends[proto] = servers
+				p.protocols[proto] = servers
 			}
 			for _, name := range fb.ServerNames {
 				servers[name] = fb.backend
 			}
 		}
 	}
-	for proto, _ := range p.backends {
+	for proto, _ := range p.protocols {
 		if proto != "" {
 			p.config.NextProtos = append(p.config.NextProtos, proto)
 		}
@@ -61,7 +60,7 @@ func (p *proxy) InitBackends() error {
 }
 
 func (p *proxy) InitFallback() error {
-	p.backends[""][""] = p.Fallback
+	p.protocols[""][""] = p.Fallback
 	return nil
 }
 
@@ -109,13 +108,21 @@ func (p *proxy) handle(tc *net.TCPConn) {
 		return
 	}
 	cs := c.ConnectionState()
-	servers, ok := p.backends[cs.NegotiatedProtocol]
+	servers, ok := p.protocols[cs.NegotiatedProtocol]
 	if !ok {
-		servers = p.backends[""]
+		servers, ok = p.protocols[""]
+		if !ok {
+			tc.Close()
+			return
+		}
 	}
 	b, ok := servers[cs.ServerName]
 	if !ok {
 		b, ok = servers[""]
+		if !ok {
+			tc.Close()
+			return
+		}
 	}
 	logger.Printf("accepted %v for backend %s protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
 	defer logger.Printf("disconnected %v", raddr)
