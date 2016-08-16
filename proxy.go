@@ -15,7 +15,7 @@ type proxy struct {
 	Certs    []string
 	Email    string `toml:"optional"`
 	Backends []*filteredBackend
-	Fallback *backend `toml:"optional"`
+	Fallback *backend
 
 	// Map of protocols to servernames
 	backends map[string]map[string]*backend
@@ -79,7 +79,7 @@ func (p *proxy) ALPN(name string) {
 }
 
 func (p *proxy) listenAndServe() error {
-	laddr, err := net.ResolveTCPAddr("tcp", ":443")
+	laddr, err := net.ResolveTCPAddr("tcp", ":https")
 	if err != nil {
 		return err
 	}
@@ -120,26 +120,18 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	c := tls.Server(tc, p.config)
 	err := c.Handshake()
 	if err != nil {
-		c.Close()
+		tc.Close()
 		return
 	}
 	cs := c.ConnectionState()
-	logger.Printf("%v for %v on %v", raddr, cs.ServerName, cs.NegotiatedProtocol)
-	protocols, ok := p.backends[cs.ServerName]
+	logger.Printf("%v requested protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
+	servers, ok := p.backends[cs.NegotiatedProtocol]
 	if !ok {
-		protocols, ok = p.backends[""]
-		if !ok {
-			c.Close()
-			return
-		}
+		servers = p.backends[""]
 	}
-	b, ok := protocols[cs.NegotiatedProtocol]
+	b, ok := servers[cs.ServerName]
 	if !ok {
-		b, ok = protocols[""]
-		if !ok {
-			c.Close()
-			return
-		}
+		b, ok = servers[""]
 	}
 	b.handle(c, tc)
 }

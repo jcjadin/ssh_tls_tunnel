@@ -24,11 +24,15 @@ func main() {
 	timestamps := flag.Bool("timestamps", false, "enable timestamps on log lines")
 	flag.Parse()
 
+	os.Chdir(*configDir)
 	logger = log.New(os.Stderr, *timestamps)
 
 	p := new(proxy)
-	err := toml.UnmarshalFile(*configDir+"/config.toml", &p)
+	err := toml.UnmarshalFile("config.toml", &p)
 	if err != nil {
+		logger.Fatal(err)
+	}
+	if err = p.manager.CacheFile("letsencrypt.cache"); err != nil {
 		logger.Fatal(err)
 	}
 
@@ -41,5 +45,5 @@ func main() {
 	}()
 
 	logger.Print("initialized")
-	logger.Print(p.backends)
+	logger.Fatal(p.listenAndServe())
 }
