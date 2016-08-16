@@ -65,19 +65,6 @@ func (p *proxy) InitFallback() error {
 	return nil
 }
 
-func (p *proxy) ALPN(name string) {
-	new := true
-	for _, s := range p.config.NextProtos {
-		if s == name {
-			new = false
-			break
-		}
-	}
-	if new {
-		p.config.NextProtos = append(p.config.NextProtos, name)
-	}
-}
-
 func (p *proxy) listenAndServe() error {
 	laddr, err := net.ResolveTCPAddr("tcp", ":https")
 	if err != nil {
