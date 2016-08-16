@@ -23,10 +23,11 @@ type proxy struct {
 }
 
 func (p *proxy) InitCerts() error {
-	p.config = new(tls.Config)
 	p.manager = new(letsencrypt.Manager)
 	p.manager.SetHosts(p.Certs)
-	p.config.GetCertificate = p.manager.GetCertificate
+	p.config = &tls.Config{
+		GetCertificate: p.manager.GetCertificate,
+	}
 	return nil
 }
 
