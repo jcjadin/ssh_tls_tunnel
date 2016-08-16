@@ -180,17 +180,16 @@ var d = &net.Dialer{
 	DualStack: true,
 }
 
-// TODO look over
+// TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(c1 *tls.Conn, tc1 *net.TCPConn) {
 	c2, err := d.Dial("tcp", b.Addr)
 	if err != nil {
-		c1.Close()
+		tc1.Close()
 		b.log(err)
 		return
 	}
 	tc2 := c2.(*net.TCPConn)
-	var wg sync.WaitGroup
-	wg.Add(2)
+	done := make(chan struct{})
 	go func() {
 		_, err := io.Copy(c2, c1)
 		if err != nil {
@@ -198,18 +197,15 @@ func (b *backend) handle(c1 *tls.Conn, tc1 *net.TCPConn) {
 		}
 		tc2.CloseWrite()
 		tc1.CloseRead()
-		wg.Done()
+		close(done)
 	}()
-	go func() {
-		_, err = io.Copy(c1, c2)
-		if err != nil {
-			b.log(err)
-		}
-		tc1.CloseWrite()
-		tc2.CloseRead()
-		wg.Done()
-	}()
-	wg.Wait()
+	_, err = io.Copy(c1, c2)
+	if err != nil {
+		b.log(err)
+	}
+	tc1.CloseWrite()
+	tc2.CloseRead()
+	<-done
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
