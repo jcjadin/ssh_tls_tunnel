@@ -98,6 +98,7 @@ func (p *proxy) listenAndServe() error {
 	}
 }
 
+// TODO better logging
 func (p *proxy) handle(tc *net.TCPConn) {
 	tc.SetKeepAlive(true)
 	tc.SetKeepAlivePeriod(30 * time.Second)
