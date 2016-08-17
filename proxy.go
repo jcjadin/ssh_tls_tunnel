@@ -71,6 +71,7 @@ func (p *proxy) InitBackends() error {
 				servers = make(map[string]*backend)
 				p.protocols[proto] = servers
 			}
+			servers[""] = p.Fallback
 			for _, name := range fb.ServerNames {
 				servers[name] = fb.backend
 			}
