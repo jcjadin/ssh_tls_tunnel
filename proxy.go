@@ -135,12 +135,12 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	servers, ok := p.protocols[cs.NegotiatedProtocol]
 	if !ok {
 		logger.Printf("unknown protocol %q for %v", cs.NegotiatedProtocol, raddr)
-		servers, ok = p.protocols[""]
+		servers = p.protocols[""]
 	}
 	b, ok := servers[cs.ServerName]
 	if !ok {
 		logger.Printf("unknown server name %q for %v", cs.ServerName, raddr)
-		b, ok = servers[""]
+		b = servers[""]
 	}
 	b.handle(c, tc)
 }
