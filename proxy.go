@@ -117,7 +117,6 @@ func (p *proxy) listenAndServe() error {
 	}
 }
 
-// TODO better logging
 func (p *proxy) handle(tc *net.TCPConn) {
 	raddr := tc.RemoteAddr()
 	tc.SetKeepAlive(true)
@@ -126,6 +125,7 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	err := c.Handshake()
 	if err != nil {
 		tc.Close()
+		logger.Printf("TLS handshake error from %s: %v", raddr, err)
 		return
 	}
 	cs := c.ConnectionState()
@@ -133,19 +133,13 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	defer logger.Printf("disconnected %v", raddr)
 	servers, ok := p.protocols[cs.NegotiatedProtocol]
 	if !ok {
+		logger.Printf("unable to find negotiated protocol backend for %s", raddr)
 		servers, ok = p.protocols[""]
-		if !ok {
-			tc.Close()
-			return
-		}
 	}
 	b, ok := servers[cs.ServerName]
 	if !ok {
+		logger.Printf("unable to find server name backend for %s", raddr)
 		b, ok = servers[""]
-		if !ok {
-			tc.Close()
-			return
-		}
 	}
 	b.handle(c, tc)
 }
@@ -169,6 +163,7 @@ var d = &net.Dialer{
 
 // TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(c1 *tls.Conn, tc1 *net.TCPConn) {
+	b.logf("accepted %s", tc1.RemoteAddr())
 	c2, err := d.Dial("tcp", b.Addr)
 	if err != nil {
 		tc1.Close()
