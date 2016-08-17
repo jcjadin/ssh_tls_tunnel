@@ -25,3 +25,8 @@ email = "me@example.com"
 	name        = "http"
 	addr        = "localhost:8080"
 ```
+
+TODO:
+-----
+- [ ] Prioritize protocol or servername?
+- [ ] How much validation to do?
