@@ -28,5 +28,5 @@ email = "me@example.com"
 
 TODO:
 -----
-- [ ] Prioritize protocol or servername?
+- [x] Prioritize protocol or servername? (prioritize protocol)
 - [ ] How much validation to do?
