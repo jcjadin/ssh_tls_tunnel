@@ -129,16 +129,16 @@ func (p *proxy) handle(tc *net.TCPConn) {
 		return
 	}
 	cs := c.ConnectionState()
-	logger.Printf("accepted %v for protocol %s on server %s", raddr, cs.NegotiatedProtocol, cs.ServerName)
+	logger.Printf("accepted %v for protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
 	defer logger.Printf("disconnected %v", raddr)
 	servers, ok := p.protocols[cs.NegotiatedProtocol]
 	if !ok {
-		logger.Printf("unknown protocol for %v", raddr)
+		logger.Printf("unknown protocol %q for %v", raddr)
 		servers, ok = p.protocols[""]
 	}
 	b, ok := servers[cs.ServerName]
 	if !ok {
-		logger.Printf("unknown server name for %v", raddr)
+		logger.Printf("unknown server name %q for %v", raddr)
 		b, ok = servers[""]
 	}
 	b.handle(c, tc)
