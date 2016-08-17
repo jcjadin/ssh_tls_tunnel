@@ -29,4 +29,4 @@ email = "me@example.com"
 TODO:
 -----
 - [x] Prioritize protocol or servername? (prioritize protocol)
-- [ ] How much validation to do?
+- [ ] How much validation to do? Should a fallbacks be forced for each protocol?
