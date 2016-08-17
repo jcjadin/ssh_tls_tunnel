@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -71,15 +72,23 @@ func (p *proxy) InitBackends() error {
 				servers = make(map[string]*backend)
 				p.protocols[proto] = servers
 			}
-			servers[""] = p.Fallback
 			for _, name := range fb.ServerNames {
 				servers[name] = fb.backend
 			}
 		}
 	}
-	for proto, _ := range p.protocols {
+	for proto, servers := range p.protocols {
 		if proto != "" {
 			p.config.NextProtos = append(p.config.NextProtos, proto)
+		}
+		found := false
+		for name, _ := range servers {
+			if name == "" {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("no default server backend for protocol %s", proto)
 		}
 	}
 	return nil
