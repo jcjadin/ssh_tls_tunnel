@@ -2,30 +2,41 @@ package main
 
 import (
 	"crypto/tls"
-	"errors"
-	"fmt"
 	"io"
 	"net"
 	"time"
 
+	"github.com/nhooyr/toml"
+
 	"rsc.io/letsencrypt"
 )
 
+// TODO renaming
 type proxy struct {
-	Hostnames []string
-	Email     string `toml:"optional"`
-	Fallback  *backend
-	Backends  []*filteredBackend `toml:"optional"`
+	Hostnames []toml.NonEmptyString
+	Email     toml.NonEmptyString `toml:"optional"`
+	Fallback  *proto
+	Backends  map[string]*backend
+	Protos    map[string]*proto `toml:"optional"`
 
-	// Map of protocols to servernames
-	protocols map[string]map[string]*backend
-	config    *tls.Config
-	manager   *letsencrypt.Manager
+	config  *tls.Config
+	manager *letsencrypt.Manager
+	// Map of protocols to serverNames to backends
+	protos map[string]map[string]*backend
+}
+
+type proto struct {
+	Hosts   map[string]*backend `toml:"optional"`
+	Default *backend
 }
 
 func (p *proxy) InitHostnames() error {
 	p.manager = new(letsencrypt.Manager)
-	p.manager.SetHosts(p.Hostnames)
+	h := make([]string, len(p.Hostnames))
+	for i := range h {
+		h[i] = string(p.Hostnames[i])
+	}
+	p.manager.SetHosts(h)
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
@@ -33,63 +44,30 @@ func (p *proxy) InitHostnames() error {
 }
 
 func (p *proxy) InitEmail() error {
-	p.manager.Register(p.Email, func(_ string) bool {
+	p.manager.Register(string(p.Email), func(_ string) bool {
 		return true
 	})
 	return nil
 }
 
 func (p *proxy) InitFallback() error {
-	p.protocols = make(map[string]map[string]*backend)
-	p.protocols[""] = make(map[string]*backend)
-	p.protocols[""][""] = p.Fallback
+	p.protos = make(map[string]map[string]*backend)
+	p.protos[""] = make(map[string]*backend)
+	for host, b := range p.Fallback.Hosts {
+		p.protos[""][host] = b
+	}
+	p.protos[""][""] = p.Fallback.Default
 	return nil
 }
 
-type filteredBackend struct {
-	*backend
-	Protocols   []string `toml:"optional"`
-	ServerNames []string `toml:"optional"`
-}
-
-func (fb *filteredBackend) Init() error {
-	if len(fb.Protocols) == 0 && len(fb.ServerNames) == 0 {
-		return errors.New("at least protocols or serverNames must be present")
-	}
-	if len(fb.Protocols) == 0 {
-		fb.Protocols = append(fb.Protocols, "")
-	} else if len(fb.ServerNames) == 0 {
-		fb.ServerNames = append(fb.ServerNames, "")
-	}
-	return nil
-}
-
-func (p *proxy) InitBackends() error {
-	for _, fb := range p.Backends {
-		for _, proto := range fb.Protocols {
-			servers, ok := p.protocols[proto]
-			if !ok {
-				servers = make(map[string]*backend)
-				p.protocols[proto] = servers
-			}
-			for _, name := range fb.ServerNames {
-				servers[name] = fb.backend
-			}
+func (p *proxy) InitProtos() error {
+	for name, proto := range p.Protos {
+		p.protos[name] = make(map[string]*backend)
+		for host, b := range proto.Hosts {
+			p.protos[name][host] = b
 		}
-	}
-	for proto, servers := range p.protocols {
-		if proto != "" {
-			p.config.NextProtos = append(p.config.NextProtos, proto)
-		}
-		found := false
-		for name, _ := range servers {
-			if name == "" {
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("no default server backend for protocol %s", proto)
-		}
+		p.protos[name][""] = proto.Default
+		p.config.NextProtos = append(p.config.NextProtos, string(name))
 	}
 	return nil
 }
@@ -141,10 +119,10 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	cs := c.ConnectionState()
 	logger.Printf("accepted %v for protocol %q on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
 	defer logger.Printf("disconnected %v", raddr)
-	servers, ok := p.protocols[cs.NegotiatedProtocol]
+	servers, ok := p.protos[cs.NegotiatedProtocol]
 	if !ok {
 		logger.Printf("unknown protocol %q for %v", cs.NegotiatedProtocol, raddr)
-		servers = p.protocols[""]
+		servers = p.protos[""]
 	}
 	b, ok := servers[cs.ServerName]
 	if !ok {
@@ -155,8 +133,8 @@ func (p *proxy) handle(tc *net.TCPConn) {
 }
 
 type backend struct {
-	Name string
-	Addr string
+	Name toml.NonEmptyString
+	Addr toml.NonEmptyString
 }
 
 func (b *backend) InitName() error {
@@ -174,7 +152,7 @@ var d = &net.Dialer{
 // TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(c1 *tls.Conn, tc1 *net.TCPConn) {
 	b.logf("accepted %v", tc1.RemoteAddr())
-	c2, err := d.Dial("tcp", b.Addr)
+	c2, err := d.Dial("tcp", string(b.Addr))
 	if err != nil {
 		tc1.Close()
 		b.log(err)
@@ -201,7 +179,7 @@ func (b *backend) handle(c1 *tls.Conn, tc1 *net.TCPConn) {
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
-	logger.Printf(b.Name+format, v...)
+	logger.Printf(string(b.Name)+format, v...)
 }
 
 func (b *backend) log(err error) {
