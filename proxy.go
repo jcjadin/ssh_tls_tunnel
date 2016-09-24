@@ -22,7 +22,7 @@ type proxy struct {
 		Fallback string            `json:"fallback"`
 		Hosts    map[string]string `json:"hosts"`
 	} `json:"default"`
-	Protos []*struct {
+	Protos []struct {
 		Name     string            `json:"name"`
 		Fallback string            `json:"fallback"`
 		Hosts    map[string]string `json:"hosts"`
@@ -62,7 +62,7 @@ func (p *proxy) init() error {
 	p.backends = make(map[string]map[string]*backend)
 	p.backends[""] = make(map[string]*backend)
 	p.backends[""][""] = &backend{
-		`"".""`,
+		`""."": `,
 		p.Default.Fallback,
 	}
 	for host, addr := range p.Default.Hosts {
@@ -70,7 +70,7 @@ func (p *proxy) init() error {
 			return errors.New("empty host in default.hosts")
 		}
 		p.backends[""][host] = &backend{
-			fmt.Sprintf(`"".%q`, host),
+			fmt.Sprintf(`"".%q: `, host),
 			addr,
 		}
 	}
@@ -86,7 +86,7 @@ func (p *proxy) init() error {
 			return fmt.Errorf("protos[%d].fallback is empty or missing", i)
 		}
 		p.backends[proto.Name][""] = &backend{
-			fmt.Sprintf(`%q.""`, proto.Name),
+			fmt.Sprintf(`%q."": `, proto.Name),
 			proto.Fallback,
 		}
 		for host, addr := range proto.Hosts {
@@ -94,7 +94,7 @@ func (p *proxy) init() error {
 				return fmt.Errorf("empty host in protos[%d].hosts", i)
 			}
 			p.backends[proto.Name][host] = &backend{
-				fmt.Sprintf("%q.%q", proto.Name, host),
+				fmt.Sprintf("%q.%q: ", proto.Name, host),
 				addr,
 			}
 			var found bool
@@ -194,14 +194,14 @@ func (p *proxy) handle(tc *net.TCPConn) {
 }
 
 type backend struct {
-	Name string
-	Addr string
+	name string
+	addr string
 }
 
 // TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
 	b.logf("accepted %v", tc1.RemoteAddr())
-	c2, err := d.Dial("tcp", string(b.Name))
+	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		tc1.Close()
 		b.log(err)
@@ -228,9 +228,9 @@ func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
-	log.Printf(b.Addr+format, v...)
+	log.Printf(b.name+format, v...)
 }
 
 func (b *backend) log(err error) {
-	log.Print(b.Addr, err)
+	log.Print(b.name, err)
 }
