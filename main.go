@@ -9,7 +9,9 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/nhooyr/log"
 	"github.com/xenolf/lego/acme"
@@ -34,12 +36,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	p := new(proxy)
 	f, err := os.Open("config.json")
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	p := new(proxy)
 	err = json.NewDecoder(f).Decode(&p)
 	if err != nil {
 		log.Fatal(err)
@@ -49,22 +51,41 @@ func main() {
 		log.Fatal(err)
 	}
 
-	laddr, err := net.ResolveTCPAddr("tcp", ":https")
-	if err != nil {
-		log.Fatal(err)
-	}
-	l, err := net.ListenTCP("tcp", laddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	// TODO disk caching
 	keys := make([][32]byte, 1)
-	if _, err := rand.Read(keys[0][:]); err != nil {
+	_, err = rand.Read(keys[0][:])
+	if err != nil {
 		log.Fatal(err)
 	}
 	p.config.SetSessionTicketKeys(keys)
 	go p.rotateSessionTicketKeys(keys)
 
+	for _, host := range p.bindInterfaces {
+		laddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(host, "https"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		l, err := net.ListenTCP("tcp", laddr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		go log.Fatal(p.serve(tcpKeepAliveListener{l}))
+	}
+
 	log.Print("initialized")
-	log.Fatal(p.serve(l))
+	runtime.Goexit()
+}
+
+type tcpKeepAliveListener struct {
+	*net.TCPListener
+}
+
+func (ln tcpKeepAliveListener) Accept() (c net.Conn, err error) {
+	tc, err := ln.AcceptTCP()
+	if err != nil {
+		return
+	}
+	tc.SetKeepAlive(true)
+	tc.SetKeepAlivePeriod(30 * time.Second)
+	return tc, nil
 }

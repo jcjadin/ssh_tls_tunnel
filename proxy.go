@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/nhooyr/log"
@@ -16,9 +17,10 @@ import (
 
 // TODO custom config file
 type proxy struct {
-	Hosts   []string `json:"hosts"`
-	Email   string   `json:"email"`
-	Default *struct {
+	Hosts          []string `json:"hosts"`
+	bindInterfaces []string `json:"bindInterfaces"`
+	Email          string   `json:"email"`
+	Default        *struct {
 		Fallback string            `json:"fallback"`
 		Hosts    map[string]string `json:"hosts"`
 	} `json:"default"`
@@ -38,26 +40,23 @@ func (p *proxy) init() error {
 	p.manager = new(letsencrypt.Manager)
 	err := p.manager.CacheFile("letsencrypt.cache")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	// hosts are actually set at the bottom of the function
-	// because others might be under a protocol.
-	if p.Hosts == nil {
-		return errors.New("empty hosts")
-	}
-	if p.Email != "" {
+
+	if p.Email != "" && !p.manager.Registered() {
 		err = p.manager.Register(p.Email, func(tosURL string) bool {
 			return true
 		})
-		if err != nil && err.Error() != "already registered" {
+		if err != nil {
 			return err
 		}
 	}
+
 	if p.Default == nil {
 		return errors.New("missing default")
 	}
 	if p.Default.Fallback == "" {
-		return errors.New("missing default.fallback")
+		return errors.New("default.fallback is empty or missing")
 	}
 	p.backends = make(map[string]map[string]*backend)
 	p.backends[""] = make(map[string]*backend)
@@ -73,6 +72,12 @@ func (p *proxy) init() error {
 			fmt.Sprintf(`"".%q: `, host),
 			addr,
 		}
+	}
+
+	// hosts are actually set at the bottom of the function
+	// because others might be under a protocol.
+	if p.Hosts == nil {
+		return errors.New("hosts is empty or missing")
 	}
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
@@ -97,13 +102,7 @@ func (p *proxy) init() error {
 				fmt.Sprintf("%q.%q: ", proto.Name, host),
 				addr,
 			}
-			var found bool
-			for _, host2 := range p.Hosts {
-				if host == host2 {
-					found = true
-				}
-			}
-			if !found {
+			if !contains(p.Hosts, host) {
 				p.Hosts = append(p.Hosts, host)
 			}
 		}
@@ -113,27 +112,36 @@ func (p *proxy) init() error {
 	return nil
 }
 
-func (p *proxy) serve(l *net.TCPListener) error {
-	var tempDelay time.Duration
+func contains(strs []string, s1 string) bool {
+	for _, s2 := range strs {
+		if s1 == s2 {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *proxy) serve(l net.Listener) error {
+	var delay time.Duration
 	for {
-		c, err := l.AcceptTCP()
+		c, err := l.Accept()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				if tempDelay == 0 {
-					tempDelay = 5 * time.Millisecond
+				if delay == 0 {
+					delay = 5 * time.Millisecond
 				} else {
-					tempDelay *= 2
+					delay *= 2
 				}
-				if tempDelay > time.Second {
-					tempDelay = time.Second
+				if delay > time.Second {
+					delay = time.Second
 				}
-				log.Print("%v; retrying in %v", err, tempDelay)
-				time.Sleep(tempDelay)
+				log.Print("%v; retrying in %v", err, delay)
+				time.Sleep(delay)
 				continue
 			}
 			return err
 		}
-		tempDelay = 0
+		delay = 0
 		go p.handle(c)
 	}
 }
@@ -170,27 +178,25 @@ var d = &net.Dialer{
 	DualStack: true,
 }
 
-func (p *proxy) handle(tc *net.TCPConn) {
-	raddr := tc.RemoteAddr()
-	tc.SetKeepAlive(true)
-	tc.SetKeepAlivePeriod(30 * time.Second)
-	c := tls.Server(tc, p.config)
-	err := c.Handshake()
+func (p *proxy) handle(c net.Conn) {
+	raddr := c.RemoteAddr()
+	tlc := tls.Server(c, p.config)
+	err := tlc.Handshake()
 	if err != nil {
-		tc.Close()
+		c.Close()
 		log.Printf("TLS handshake error from %v: %v", raddr, err)
 		return
 	}
-	cs := c.ConnectionState()
-	log.Printf("accepted %v for protocol %s on server %q", raddr, cs.NegotiatedProtocol, cs.ServerName)
+	cs := tlc.ConnectionState()
+	log.Printf("accepted %v for %q.%q", raddr, cs.NegotiatedProtocol, cs.ServerName)
 	defer log.Printf("disconnected %v", raddr)
 	hosts, ok := p.backends[cs.NegotiatedProtocol]
 	b, ok := hosts[cs.ServerName]
 	if !ok {
-		log.Printf("unknown server %q for %v; falling back to default", cs.ServerName, raddr)
+		log.Printf(`%v: %q.%v not found; falling back to %q.""`, raddr, cs.NegotiatedProtocol, cs.ServerName, cs.NegotiatedProtocol)
 		b = hosts[""]
 	}
-	b.handle(tc, c)
+	b.handle(tlc)
 }
 
 type backend struct {
@@ -199,36 +205,35 @@ type backend struct {
 }
 
 // TODO What is the compare and swap stuff in tls.Conn.Close()?
-func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
-	b.logf("accepted %v", tc1.RemoteAddr())
+func (b *backend) handle(c1 net.Conn) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
-		tc1.Close()
+		c1.Close()
 		b.log(err)
 		return
 	}
-	tc2 := c2.(*net.TCPConn)
 	done := make(chan struct{})
+	var once sync.Once
 	go func() {
 		_, err := io.Copy(c2, c1)
 		if err != nil {
 			b.log(err)
 		}
-		tc2.CloseWrite()
-		tc1.CloseRead()
+		once.Do(func() {
+			c2.Close()
+			c1.Close()
+		})
 		close(done)
 	}()
 	_, err = io.Copy(c1, c2)
 	if err != nil {
 		b.log(err)
 	}
-	tc1.CloseWrite()
-	tc2.CloseRead()
+	once.Do(func() {
+		c1.Close()
+		c2.Close()
+	})
 	<-done
-}
-
-func (b *backend) logf(format string, v ...interface{}) {
-	log.Printf(b.name+format, v...)
 }
 
 func (b *backend) log(err error) {
