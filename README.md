@@ -7,6 +7,7 @@
 		"example.com",
 		"www.example.com"
 	],
+	"bindInterfaces": ["5.5.5.5"],
 	"email": "user@example.com",
 	"default": {
 		"fallback": "localhost:8083",
