@@ -67,7 +67,7 @@ func (p *proxy) init() error {
 	}
 	for host, addr := range p.Default.Hosts {
 		if host == "" {
-			return errors.New("empty host in default.hosts")
+			return errors.New("empty key in default.hosts")
 		}
 		p.backends[""][host] = &backend{
 			fmt.Sprintf(`"".%q: `, host),
@@ -91,7 +91,7 @@ func (p *proxy) init() error {
 		}
 		for host, addr := range proto.Hosts {
 			if host == "" {
-				return fmt.Errorf("empty host in protos[%d].hosts", i)
+				return fmt.Errorf("empty key in protos[%d].hosts", i)
 			}
 			p.backends[proto.Name][host] = &backend{
 				fmt.Sprintf("%q.%q: ", proto.Name, host),
