@@ -13,37 +13,34 @@ import (
 	"github.com/xenolf/lego/acme"
 )
 
-var logger *log.Logger
-
 func init() {
-	acme.Logger = stdlog.New(ioutil.Discard, "", 0)
+	acme.loggger = stdlog.New(ioutil.Discard, "", 0)
 }
 
 func main() {
 	configDir := flag.String("c", "/usr/local/etc/tlsmuxd", "path to the configuration directory")
-	timestamps := flag.Bool("timestamps", false, "enable timestamps on log lines")
 	flag.Parse()
-
 	os.Chdir(*configDir)
-	logger = log.New(os.Stderr, *timestamps)
 
 	p := new(proxy)
 	err := toml.UnmarshalFile("config.toml", &p)
 	if err != nil {
-		logger.Fatal(err)
+		log.Fatal(err)
 	}
-	if err = p.manager.CacheFile("letsencrypt.cache"); err != nil {
-		logger.Fatal(err)
+	err = p.manager.CacheFile("letsencrypt.cache")
+	if err != nil {
+		log.Fatal(err)
 	}
 
+	// TODO where to put this, before or here?
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		logger.Print("terminating")
+		log.Print("terminating")
 		os.Exit(0)
 	}()
 
-	logger.Print("initialized")
-	logger.Fatal(p.listenAndServe())
+	log.Print("initialized")
+	log.Fatal(p.listenAndServe())
 }

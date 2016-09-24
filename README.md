@@ -29,9 +29,11 @@ email = "foo@example.com"
 TODO:
 -----
 - ~~[x] Prioritize protocol or servername? (prioritize protocol)~~
-- [ ] How much validation to do? Should a fallbacks be forced for each protocol?
 - [x] Should an empty protocol be allowed? (yes) (clients do not always support)
-- ~~[ ] sniff or dialTLS?``~~
-- [ ] x-forwarded-for?
-- [ ] Should default backends be forced?
+- ~~[ ] sniff or dialTLS?``~~ (no need)
+- ~~[ ] x-forwarded-for?~~ (too much trouble)
+- [x] Should default backends be forced? (yes)
+- [ ] How to handle priority?
 - [ ] Load balancing (custom algorithm)
+- [ ] wildcards in servers, not cert hosts.
+- [ ] Embed slices with `toml:"."`
