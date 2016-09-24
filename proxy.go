@@ -16,11 +16,16 @@ import (
 
 // TODO custom config file
 type proxy struct {
-	Hosts  []string `json:"hosts"`
-	Email  string   `json:"email"`
+	Hosts   []string `json:"hosts"`
+	Email   string   `json:"email"`
+	Default *struct {
+		Fallback string            `json:"fallback"`
+		Hosts    map[string]string `json:"hosts"`
+	} `json:"default"`
 	Protos []*struct {
-		Name  string            `json:"name"`
-		Hosts map[string]string `json:"hosts"`
+		Name     string            `json:"name"`
+		Fallback string            `json:"fallback"`
+		Hosts    map[string]string `json:"hosts"`
 	} `json:"protos"`
 
 	backends map[string]map[string]*backend
@@ -35,7 +40,8 @@ func (p *proxy) init() error {
 	if err != nil {
 		log.Fatal(err)
 	}
-	p.manager.SetHosts(p.Hosts)
+	// hosts are actually set at the bottom of the function
+	// because others might be under a protocol.
 	if p.Hosts == nil {
 		return errors.New("empty hosts")
 	}
@@ -47,31 +53,63 @@ func (p *proxy) init() error {
 			return err
 		}
 	}
-	if p.Protos == nil {
-		return errors.New("missing protos")
+	if p.Default == nil {
+		return errors.New("missing default")
+	}
+	if p.Default.Fallback == "" {
+		return errors.New("missing default.fallback")
+	}
+	p.backends = make(map[string]map[string]*backend)
+	p.backends[""] = make(map[string]*backend)
+	p.backends[""][""] = &backend{
+		`"".""`,
+		p.Default.Fallback,
+	}
+	for host, addr := range p.Default.Hosts {
+		if host == "" {
+			return errors.New("empty host in default.hosts")
+		}
+		p.backends[""][host] = &backend{
+			fmt.Sprintf(`"".%q`, host),
+			addr,
+		}
 	}
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
-	p.backends = make(map[string]map[string]*backend)
-	for _, proto := range p.Protos {
+	for i, proto := range p.Protos {
+		if proto.Name == "" {
+			return fmt.Errorf("protos[%d].name is empty or missing", i)
+		}
 		p.backends[proto.Name] = make(map[string]*backend)
+		if proto.Fallback == "" {
+			return fmt.Errorf("protos[%d].fallback is empty or missing", i)
+		}
+		p.backends[proto.Name][""] = &backend{
+			fmt.Sprintf(`%q.""`, proto.Name),
+			proto.Fallback,
+		}
 		for host, addr := range proto.Hosts {
+			if host == "" {
+				return fmt.Errorf("empty host in protos[%d].hosts", i)
+			}
 			p.backends[proto.Name][host] = &backend{
-				Name: fmt.Sprintf("%q.%q", proto.Name, host),
-				Addr: addr,
+				fmt.Sprintf("%q.%q", proto.Name, host),
+				addr,
+			}
+			var found bool
+			for _, host2 := range p.Hosts {
+				if host == host2 {
+					found = true
+				}
+			}
+			if !found {
+				p.Hosts = append(p.Hosts, host)
 			}
 		}
-		if _, ok := p.backends[proto.Name][""]; !ok {
-			return fmt.Errorf("missing empty host in proto %q", proto.Name)
-		}
-		if proto.Name != "" {
-			p.config.NextProtos = append(p.config.NextProtos, proto.Name)
-		}
+		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
-	if _, ok := p.backends[""]; !ok {
-		return fmt.Errorf("missing empty protocol")
-	}
+	p.manager.SetHosts(p.Hosts)
 	return nil
 }
 
@@ -163,7 +201,7 @@ type backend struct {
 // TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
 	b.logf("accepted %v", tc1.RemoteAddr())
-	c2, err := d.Dial("tcp", string(b.Addr))
+	c2, err := d.Dial("tcp", string(b.Name))
 	if err != nil {
 		tc1.Close()
 		b.log(err)
@@ -190,9 +228,9 @@ func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
-	log.Printf(b.Name+format, v...)
+	log.Printf(b.Addr+format, v...)
 }
 
 func (b *backend) log(err error) {
-	log.Print(b.Name, err)
+	log.Print(b.Addr, err)
 }
