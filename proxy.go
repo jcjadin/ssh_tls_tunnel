@@ -3,105 +3,79 @@ package main
 import (
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"time"
 
 	"github.com/nhooyr/log"
-	"github.com/nhooyr/toml"
 
 	"rsc.io/letsencrypt"
 )
 
+// TODO custom config file
 type proxy struct {
-	// TODO should I have to mark these as map only?
-	// TODO value tag for struct slices like Hosts for position
-	// TODO map vs tablekey?
-	Hosts []toml.NonEmptyString
-	Email struct {
-		Val toml.NonEmptyString
-		*toml.Location
-	} `toml:"optional"`
-	Backends []*struct {
-		Proto    string                         // TODO because of this, should not allow backends to not be tree
-		Hosts    map[string]toml.NonEmptyString `toml:"optional"`
-		Fallback toml.NonEmptyString
-	} `toml:"optional"`
-	Default struct {
-		Hosts    map[string]toml.NonEmptyString `toml:"optional"`
-		Fallback toml.NonEmptyString
-	}
+	Hosts  []string `json:"hosts"`
+	Email  string   `json:"email"`
+	Protos []*struct {
+		Name  string            `json:"name"`
+		Hosts map[string]string `json:"hosts"`
+	} `json:"protos"`
 
-	// Map of protocols to serverNames to addresses
 	backends map[string]map[string]*backend
 
 	manager *letsencrypt.Manager
 	config  *tls.Config
 }
 
-func (p *proxy) InitToml() error {
+func (p *proxy) init() error {
 	p.manager = new(letsencrypt.Manager)
+	err := p.manager.CacheFile("letsencrypt.cache")
+	if err != nil {
+		log.Fatal(err)
+	}
+	p.manager.SetHosts(p.Hosts)
+	if p.Hosts == nil {
+		return errors.New("empty hosts")
+	}
+	if p.Email != "" {
+		err = p.manager.Register(p.Email, func(tosURL string) bool {
+			return true
+		})
+		if err != nil && err.Error() != "already registered" {
+			return err
+		}
+	}
+	if p.Protos == nil {
+		return errors.New("missing protos")
+	}
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
-	h := make([]string, len(p.Hosts))
-	for i := range h {
-		h[i] = string(p.Hosts[i])
-	}
-	p.manager.SetHosts(h)
-	if p.Email == "" {
-		err := p.manager.Register(string(p.Email.Val), func(_ string) bool {
-			return true
-		})
-		if err != nil {
-			return p.Email.WrapError(err)
-		}
-	}
 	p.backends = make(map[string]map[string]*backend)
-	p.backends[""] = make(map[string]*backend)
-	for host, addr := range p.Default.Hosts {
-		p.backends[""][host] = &backend{
-			"default on " + host + ": ",
-			string(addr),
-		}
-	}
-	p.backends[""][""] = &backend{
-		"default on fallback: ",
-		string(p.Default.Fallback),
-	}
-	for _, b := range p.Backends {
-		p.backends[b.Proto] = make(map[string]*backend)
-		for host, addr := range b.Hosts {
-			p.backends[b.Proto][host] = &backend{
-				b.Proto + " on " + host,
-				string(addr),
+	for _, proto := range p.Protos {
+		p.backends[proto.Name] = make(map[string]*backend)
+		for host, addr := range proto.Hosts {
+			p.backends[proto.Name][host] = &backend{
+				Name: fmt.Sprintf("%q.%q", proto.Name, host),
+				Addr: addr,
 			}
 		}
-		p.backends[b.Proto][""] = &backend{
-			b.Proto + " on fallback: ",
-			string(b.Fallback),
+		if _, ok := p.backends[proto.Name][""]; !ok {
+			return fmt.Errorf("missing empty host in proto %q", proto.Name)
 		}
-
-		p.config.NextProtos = append(p.config.NextProtos, string(b.Proto))
+		if proto.Name != "" {
+			p.config.NextProtos = append(p.config.NextProtos, proto.Name)
+		}
+	}
+	if _, ok := p.backends[""]; !ok {
+		return fmt.Errorf("missing empty protocol")
 	}
 	return nil
 }
 
-func (p *proxy) listenAndServe() error {
-	laddr, err := net.ResolveTCPAddr("tcp", ":https")
-	if err != nil {
-		return err
-	}
-	l, err := net.ListenTCP("tcp", laddr)
-	if err != nil {
-		return err
-	}
-	keys := make([][32]byte, 1)
-	if _, err := rand.Read(keys[0][:]); err != nil {
-		return err
-	}
-	p.config.SetSessionTicketKeys(keys)
-	go p.rotateSessionTicketKeys(keys)
+func (p *proxy) serve(l *net.TCPListener) error {
 	var tempDelay time.Duration
 	for {
 		c, err := l.AcceptTCP()
@@ -175,21 +149,21 @@ func (p *proxy) handle(tc *net.TCPConn) {
 	hosts, ok := p.backends[cs.NegotiatedProtocol]
 	b, ok := hosts[cs.ServerName]
 	if !ok {
-		log.Printf("unknown server name %q for %v", cs.ServerName, raddr)
+		log.Printf("unknown server %q for %v; falling back to default", cs.ServerName, raddr)
 		b = hosts[""]
 	}
 	b.handle(tc, c)
 }
 
 type backend struct {
-	name string
-	addr string
+	Name string
+	Addr string
 }
 
 // TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
 	b.logf("accepted %v", tc1.RemoteAddr())
-	c2, err := d.Dial("tcp", string(b.addr))
+	c2, err := d.Dial("tcp", string(b.Addr))
 	if err != nil {
 		tc1.Close()
 		b.log(err)
@@ -216,9 +190,9 @@ func (b *backend) handle(tc1 *net.TCPConn, c1 *tls.Conn) {
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
-	log.Printf(b.name+format, v...)
+	log.Printf(b.Name+format, v...)
 }
 
 func (b *backend) log(err error) {
-	log.Print(b.name, err)
+	log.Print(b.Name, err)
 }
