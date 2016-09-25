@@ -83,9 +83,11 @@ func (p *proxy) init() error {
 	if len(p.Hosts) == 0 {
 		return errors.New("hosts is empty or missing")
 	}
+	hosts := append([]string(nil), p.Hosts...)
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
+	// TODO rethink all of the priority
 	for i, proto := range p.Protos {
 		if proto.Name == "" {
 			return fmt.Errorf("protos[%d].name is empty or missing", i)
@@ -100,6 +102,9 @@ func (p *proxy) init() error {
 			fmt.Sprintf(`%q."": `, proto.Name),
 			proto.Fallback,
 		}
+		for _, host := range p.Hosts {
+			p.backends[proto.Name][host] = p.backends[proto.Name][""]
+		}
 		for host, addr := range proto.Hosts {
 			if host == "" {
 				return fmt.Errorf("empty key in protos[%d].hosts", i)
@@ -109,12 +114,12 @@ func (p *proxy) init() error {
 				addr,
 			}
 			if !contains(p.Hosts, host) {
-				p.Hosts = append(p.Hosts, host)
+				hosts = append(hosts, host)
 			}
 		}
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
-	p.manager.SetHosts(p.Hosts)
+	p.manager.SetHosts(hosts)
 	return nil
 }
 
@@ -170,13 +175,13 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 	}
 }
 
-// TODO optimize.
 var d = &net.Dialer{
 	Timeout:   3 * time.Second,
 	KeepAlive: 30 * time.Second,
 	DualStack: true,
 }
 
+// TODO maybe better logging?
 func (p *proxy) handle(c net.Conn) {
 	raddr := c.RemoteAddr()
 	tlc := tls.Server(c, p.config)
