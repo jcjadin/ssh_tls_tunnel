@@ -127,7 +127,6 @@ func contains(strs []string, s1 string) bool {
 	return false
 }
 
-// TODO maybe use tls.Listen
 func (p *proxy) serve(l net.Listener) error {
 	var delay time.Duration
 	for {
@@ -173,7 +172,7 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 
 // TODO optimize.
 var d = &net.Dialer{
-	Timeout:   10 * time.Second,
+	Timeout:   3 * time.Second,
 	KeepAlive: 30 * time.Second,
 	DualStack: true,
 }
@@ -204,7 +203,6 @@ type backend struct {
 	addr string
 }
 
-// TODO What is the compare and swap stuff in tls.Conn.Close()?
 func (b *backend) handle(c1 net.Conn) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {

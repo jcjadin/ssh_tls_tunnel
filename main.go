@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
-	"time"
 
 	"github.com/nhooyr/log"
 	"github.com/xenolf/lego/acme"
@@ -61,15 +60,13 @@ func main() {
 	go p.rotateSessionTicketKeys(keys)
 
 	for _, host := range p.BindInterfaces {
-		laddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(host, "https"))
+		l, err := net.Listen("tcp", net.JoinHostPort(host, "https"))
 		if err != nil {
 			log.Fatal(err)
 		}
-		l, err := net.ListenTCP("tcp", laddr)
-		if err != nil {
-			log.Fatal(err)
-		}
-		go log.Fatal(p.serve(tcpKeepAliveListener{l}))
+		go func() {
+			log.Fatal(p.serve(tcpKeepAliveListener{l.(*net.TCPListener)}))
+		}()
 	}
 
 	log.Print("initialized")
@@ -86,6 +83,6 @@ func (ln tcpKeepAliveListener) Accept() (c net.Conn, err error) {
 		return
 	}
 	tc.SetKeepAlive(true)
-	tc.SetKeepAlivePeriod(30 * time.Second)
+	tc.SetKeepAlivePeriod(d.KeepAlive)
 	return tc, nil
 }
