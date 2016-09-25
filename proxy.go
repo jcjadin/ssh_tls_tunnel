@@ -18,17 +18,17 @@ import (
 // TODO custom config file
 type proxy struct {
 	Hosts          []string `json:"hosts"`
-	bindInterfaces []string `json:"bindInterfaces"`
-	Email          string   `json:"email"`
+	BindInterfaces []string `json:"bindInterfaces"`
+	Email          string   `json:"email,omitempty"`
 	Default        *struct {
 		Fallback string            `json:"fallback"`
-		Hosts    map[string]string `json:"hosts"`
+		Hosts    map[string]string `json:"hosts,omitempty"`
 	} `json:"default"`
 	Protos []struct {
 		Name     string            `json:"name"`
 		Fallback string            `json:"fallback"`
-		Hosts    map[string]string `json:"hosts"`
-	} `json:"protos"`
+		Hosts    map[string]string `json:"hosts,omitempty"`
+	} `json:"protos,omitempty"`
 
 	backends map[string]map[string]*backend
 
@@ -37,13 +37,17 @@ type proxy struct {
 }
 
 func (p *proxy) init() error {
+	if len(p.BindInterfaces) == 0 {
+		return errors.New("bindInterfaces is missing or empty")
+	}
+
 	p.manager = new(letsencrypt.Manager)
 	err := p.manager.CacheFile("letsencrypt.cache")
 	if err != nil {
 		return err
 	}
 
-	if p.Email != "" && !p.manager.Registered() {
+	if !p.manager.Registered() && p.Email != "" {
 		err = p.manager.Register(p.Email, func(tosURL string) bool {
 			return true
 		})
@@ -76,7 +80,7 @@ func (p *proxy) init() error {
 
 	// hosts are actually set at the bottom of the function
 	// because others might be under a protocol.
-	if p.Hosts == nil {
+	if len(p.Hosts) == 0 {
 		return errors.New("hosts is empty or missing")
 	}
 	p.config = &tls.Config{
@@ -88,6 +92,8 @@ func (p *proxy) init() error {
 		}
 		p.backends[proto.Name] = make(map[string]*backend)
 		if proto.Fallback == "" {
+			// TODO inconsistent because we do not check if addresses below
+			// are empty or not
 			return fmt.Errorf("protos[%d].fallback is empty or missing", i)
 		}
 		p.backends[proto.Name][""] = &backend{
@@ -121,6 +127,7 @@ func contains(strs []string, s1 string) bool {
 	return false
 }
 
+// TODO maybe use tls.Listen
 func (p *proxy) serve(l net.Listener) error {
 	var delay time.Duration
 	for {
@@ -148,24 +155,17 @@ func (p *proxy) serve(l net.Listener) error {
 
 // TODO Cache on disk for restarts
 func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
-	for i := 0; i < 2; i++ {
-		time.Sleep(9 * time.Hour)
-		log.Println("rotating session ticket keys")
-		keys = append(keys, [32]byte{})
-		for s1, s2 := len(keys)-1, len(keys)-2; s1 > 0; s1, s2 = s1-1, s2-1 {
-			keys[s1] = keys[s2]
-		}
-		if _, err := rand.Read(keys[0][:]); err != nil {
-			log.Fatalf("error rotating session ticket keys: %v", err)
-		}
-	}
 	for {
 		time.Sleep(9 * time.Hour)
 		log.Println("rotating session ticket keys")
-		keys[2] = keys[1]
-		keys[1] = keys[0]
+		if len(keys) < cap(keys) {
+			keys = append(keys, [32]byte{})
+		}
+		for s1, s2 := len(keys)-2, len(keys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
+			keys[s2] = keys[s1]
+		}
 		if _, err := rand.Read(keys[0][:]); err != nil {
-			log.Fatal(err)
+			log.Fatalf("error rotating session ticket keys: %v", err)
 		}
 		p.config.SetSessionTicketKeys(keys)
 	}
@@ -193,7 +193,7 @@ func (p *proxy) handle(c net.Conn) {
 	hosts, ok := p.backends[cs.NegotiatedProtocol]
 	b, ok := hosts[cs.ServerName]
 	if !ok {
-		log.Printf(`%v: %q.%v not found; falling back to %q.""`, raddr, cs.NegotiatedProtocol, cs.ServerName, cs.NegotiatedProtocol)
+		log.Printf(`%v: %q.%q not found; falling back to %q.""`, raddr, cs.NegotiatedProtocol, cs.ServerName, cs.NegotiatedProtocol)
 		b = hosts[""]
 	}
 	b.handle(tlc)

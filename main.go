@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// TODO disk caching
-	keys := make([][32]byte, 1)
+	keys := make([][32]byte, 1, 3)
 	_, err = rand.Read(keys[0][:])
 	if err != nil {
 		log.Fatal(err)
@@ -60,7 +60,7 @@ func main() {
 	p.config.SetSessionTicketKeys(keys)
 	go p.rotateSessionTicketKeys(keys)
 
-	for _, host := range p.bindInterfaces {
+	for _, host := range p.BindInterfaces {
 		laddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(host, "https"))
 		if err != nil {
 			log.Fatal(err)
