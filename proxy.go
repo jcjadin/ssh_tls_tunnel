@@ -3,10 +3,13 @@ package main
 import (
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -120,6 +123,15 @@ func (p *proxy) init() error {
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
 	p.manager.SetHosts(hosts)
+	if len(p.SessionTicketKeys) == 0 {
+		p.SessionTicketKeys = make([][32]byte, 1, 3)
+		_, err = rand.Read(p.SessionTicketKeys[0][:])
+		if err != nil {
+			return err
+		}
+		p.config.SetSessionTicketKeys(p.SessionTicketKeys)
+		p.rotateSessionTicketKeys()
+	}
 	return nil
 }
 
@@ -146,7 +158,7 @@ func (p *proxy) serve(l net.Listener) error {
 				if delay > time.Second {
 					delay = time.Second
 				}
-				log.Print("%v; retrying in %v", err, delay)
+				log.Printf("%v; retrying in %v", err, delay)
 				time.Sleep(delay)
 				continue
 			}
@@ -157,21 +169,56 @@ func (p *proxy) serve(l net.Listener) error {
 	}
 }
 
-// TODO Cache on disk for restarts
-func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
+func (p *proxy) marshal(tmpdir string) (err error) {
+	f, err := ioutil.TempFile(tmpdir, "config.json")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			os.Remove(f.Name())
+		}
+	}()
+	enc = json.NewEncoder(f)
+	enc.SetIndent("", "\t")
+	enc.SetEscapeHTML(false)
+	err = enc.Encode(&p)
+	if err != nil {
+		return
+	}
+	err = f.Sync()
+	if err != nil {
+		return
+	}
+	err = f.Close()
+	if err != nil {
+		return
+	}
+	err = os.Rename(f.Name(), "config.json")
+	if err != nil {
+		return
+	}
+}
+
+func (p *proxy) rotateSessionTicketKeys() {
+	tmpdir := os.TempDir()
 	for {
-		time.Sleep(9 * time.Hour)
+		err := p.marshal(tmpdir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		time.Sleep(1 * time.Hour)
 		log.Println("rotating session ticket keys")
-		if len(keys) < cap(keys) {
-			keys = append(keys, [32]byte{})
+		if len(p.SessionTicketKeys) < 16 {
+			p.SessionTicketKeys = append(p.SessionTicketKeys, [32]byte{})
 		}
-		for s1, s2 := len(keys)-2, len(keys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
-			keys[s2] = keys[s1]
+		for s1, s2 := len(p.SessionTicketKeys)-2, len(p.SessionTicketKeys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
+			p.SessionTicketKeys[s2] = p.SessionTicketKeys[s1]
 		}
-		if _, err := rand.Read(keys[0][:]); err != nil {
+		if _, err := rand.Read(p.SessionTicketKeys[0][:]); err != nil {
 			log.Fatalf("error rotating session ticket keys: %v", err)
 		}
-		p.config.SetSessionTicketKeys(keys)
+		p.config.SetSessionTicketKeys(p.SessionTicketKeys)
 	}
 }
 
@@ -208,7 +255,7 @@ type backend struct {
 	addr string
 }
 
-func (b *backend) handle(c1 net.Conn) {
+func (b *backend) handle(c1 io.ReadWriteCloser) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		c1.Close()

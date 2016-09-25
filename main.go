@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -45,19 +44,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	err = f.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
 	err = p.init()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// TODO disk caching
-	keys := make([][32]byte, 1, 3)
-	_, err = rand.Read(keys[0][:])
-	if err != nil {
-		log.Fatal(err)
-	}
-	p.config.SetSessionTicketKeys(keys)
-	go p.rotateSessionTicketKeys(keys)
 
 	for _, host := range p.BindInterfaces {
 		l, err := net.Listen("tcp", net.JoinHostPort(host, "https"))
