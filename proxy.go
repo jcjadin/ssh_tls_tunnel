@@ -133,6 +133,7 @@ func (p *proxy) init() error {
 
 func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 	for {
+		// TODO test
 		time.Sleep(1 * time.Hour)
 		log.Println("rotating session ticket keys")
 		if len(keys) < cap(keys) {
@@ -154,6 +155,7 @@ func (p *proxy) serve(l net.Listener) error {
 	for {
 		c, err := l.Accept()
 		if err != nil {
+			// TODO test
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if delay == 0 {
 					delay = 5 * time.Millisecond
@@ -181,12 +183,11 @@ var d = &net.Dialer{
 }
 
 func (p *proxy) handle(c net.Conn) {
-	raddr := c.RemoteAddr()
 	tlc := tls.Server(c, p.config)
 	err := tlc.Handshake()
 	if err != nil {
 		c.Close()
-		log.Printf("TLS handshake error from %v: %v", raddr, err)
+		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
 		return
 	}
 	cs := tlc.ConnectionState()
@@ -195,9 +196,7 @@ func (p *proxy) handle(c net.Conn) {
 	if !ok {
 		b = hosts[""]
 	}
-	b.logf("accepted %v", raddr)
 	b.handle(tlc)
-	b.logf("disconnected %v", raddr)
 }
 
 type backend struct {
@@ -205,7 +204,10 @@ type backend struct {
 	addr string
 }
 
-func (b *backend) handle(c1 io.ReadWriteCloser) {
+func (b *backend) handle(c1 net.Conn) {
+	raddr := c1.RemoteAddr()
+	b.logf("accepted %v", raddr)
+	defer b.logf("disconnected %v", raddr)
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		c1.Close()
@@ -217,7 +219,7 @@ func (b *backend) handle(c1 io.ReadWriteCloser) {
 	go func() {
 		_, err := io.Copy(c2, c1)
 		if err != nil {
-			b.log(err)
+			b.logf("error copying %v to %v: %v", raddr, c2.RemoteAddr(), err)
 		}
 		once.Do(func() {
 			c2.Close()
@@ -227,7 +229,7 @@ func (b *backend) handle(c1 io.ReadWriteCloser) {
 	}()
 	_, err = io.Copy(c1, c2)
 	if err != nil {
-		b.log(err)
+		b.logf("error copying %v to %v: %v", c2.RemoteAddr(), raddr, err)
 	}
 	once.Do(func() {
 		c1.Close()
