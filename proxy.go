@@ -74,6 +74,7 @@ func (p *proxy) init() error {
 		GetCertificate: p.manager.GetCertificate,
 	}
 	// TODO Is this how priority should work?
+	// TODO no this is wrong because of how acme/autocert denies if host is not setup
 	for i, proto := range p.Protos {
 		if proto.Name == "" {
 			return fmt.Errorf("protos[%d].name is empty or missing", i)
@@ -133,9 +134,7 @@ func (p *proxy) init() error {
 
 func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 	for {
-		// TODO test
 		time.Sleep(1 * time.Hour)
-		log.Print("rotating session ticket keys")
 		if len(keys) < cap(keys) {
 			keys = keys[:len(keys)+1]
 		}
@@ -168,7 +167,6 @@ func (p *proxy) serve(l net.Listener) error {
 				time.Sleep(delay)
 				continue
 			}
-			// TODO test
 			return err
 		}
 		delay = 0
@@ -181,7 +179,6 @@ func (p *proxy) handle(c net.Conn) {
 	err := tlc.Handshake()
 	if err != nil {
 		c.Close()
-		// TODO further evalute based on logs
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
 		return
 	}
