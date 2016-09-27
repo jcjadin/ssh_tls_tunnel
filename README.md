@@ -35,5 +35,5 @@
 
 TODO:
 -----
-- [ ] Load balancing (custom algorithm)
-- [ ] Docs and why.
+- [ ] Tests
+- [ ] Docs
