@@ -12,7 +12,6 @@ import (
 func main() {
 	f, err := os.Open("config.json")
 	if err != nil {
-		// No need for extra context.
 		log.Fatal(err)
 	}
 	var p *proxy
@@ -23,7 +22,6 @@ func main() {
 	f.Close()
 	err = p.init()
 	if err != nil {
-		// No need for extra context.
 		log.Fatal(err)
 	}
 
@@ -31,11 +29,9 @@ func main() {
 		go func(host string) {
 			l, err := net.Listen("tcp", net.JoinHostPort(host, "https"))
 			if err != nil {
-				// No need for extra context.
 				log.Fatal(err)
 			}
 			log.Printf("listening on %v", l.Addr())
-			// No need for extra context.
 			log.Fatal(p.serve(tcpKeepAliveListener{l.(*net.TCPListener)}))
 		}(host)
 	}

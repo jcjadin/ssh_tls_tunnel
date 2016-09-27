@@ -164,13 +164,11 @@ func (p *proxy) serve(l net.Listener) error {
 				if delay > time.Second {
 					delay = time.Second
 				}
-				// TODO test
-				log.Printf("accept error: %v; retrying in %v", err, delay)
+				log.Printf("%v; retrying in %v", err, delay)
 				time.Sleep(delay)
 				continue
 			}
-			// TODO test
-			return fmt.Errorf("accept error: %v", err)
+			return err
 		}
 		delay = 0
 		go p.handle(c)
@@ -212,7 +210,6 @@ func (b *backend) handle(c1 net.Conn) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		c1.Close()
-		// No need for extra context.
 		b.log(err)
 		return
 	}
