@@ -17,6 +17,12 @@ import (
 	"github.com/nhooyr/log"
 )
 
+var d = &net.Dialer{
+	Timeout:   3 * time.Second,
+	KeepAlive: 30 * time.Second,
+	DualStack: true,
+}
+
 // TODO custom config file
 type proxy struct {
 	BindInterfaces []string `json:"bindInterfaces"`
@@ -49,7 +55,7 @@ func (p *proxy) init() error {
 		if proto.Name == "" {
 			return fmt.Errorf("protos[%d].name is empty or missing", i)
 		}
-		if len(proto.Hosts) < 1 {
+		if len(proto.Hosts) == 0 {
 			return fmt.Errorf("protos[%d].hosts is empty or missing", i)
 		}
 		p.backends[proto.Name] = make(map[string]*backend)
@@ -172,12 +178,6 @@ func (p *proxy) handle(c net.Conn) {
 type backend struct {
 	name string
 	addr string
-}
-
-var d = &net.Dialer{
-	Timeout:   3 * time.Second,
-	KeepAlive: 30 * time.Second,
-	DualStack: true,
 }
 
 func (b *backend) handle(c1 net.Conn) {
