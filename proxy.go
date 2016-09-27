@@ -41,7 +41,7 @@ type proxy struct {
 
 func (p *proxy) init() error {
 	if len(p.BindInterfaces) == 0 {
-		return errors.New("bindInterfaces is empty or missing")
+		p.BindInterfaces = []string{""}
 	}
 	if p.DefaultProto == "" {
 		return errors.New("defaultProto is empty or missing")
