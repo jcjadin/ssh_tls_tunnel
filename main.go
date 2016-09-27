@@ -42,8 +42,8 @@ type tcpKeepAliveListener struct {
 	*net.TCPListener
 }
 
-func (ln tcpKeepAliveListener) Accept() (c net.Conn, err error) {
-	tc, err := ln.AcceptTCP()
+func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
+	tc, err := l.AcceptTCP()
 	if err != nil {
 		return
 	}

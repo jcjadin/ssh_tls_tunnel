@@ -37,9 +37,8 @@ func (p *proxy) init() error {
 	if len(p.BindInterfaces) == 0 {
 		return errors.New("bindInterfaces is empty or missing")
 	}
-
 	if p.DefaultProto == "" {
-		return errors.New("default is empty or missing")
+		return errors.New("defaultProto is empty or missing")
 	}
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
@@ -51,14 +50,14 @@ func (p *proxy) init() error {
 			return fmt.Errorf("protos[%d].name is empty or missing", i)
 		}
 		if len(proto.Hosts) < 1 {
-			return fmt.Errorf("protos[%d].hosts is empty", i)
+			return fmt.Errorf("protos[%d].hosts is empty or missing", i)
 		}
 		p.backends[proto.Name] = make(map[string]*backend)
 		for host, addr := range proto.Hosts {
 			if host == "" {
 				return fmt.Errorf("empty key in protos[%d].hosts", i)
 			} else if addr == "" {
-				return fmt.Errorf("protos[%d].hosts.%s is empty", i, host)
+				return fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
 			}
 			p.backends[proto.Name][host] = &backend{
 				fmt.Sprintf("%q.%q: ", proto.Name, host),
@@ -73,7 +72,7 @@ func (p *proxy) init() error {
 	var ok bool
 	p.backends[""], ok = p.backends[p.DefaultProto]
 	if !ok {
-		return fmt.Errorf("defaultProto %q is not defined", p.DefaultProto)
+		return fmt.Errorf("defaultProto (%q) is not defined in protos", p.DefaultProto)
 	}
 
 	p.manager = autocert.Manager{
@@ -83,7 +82,7 @@ func (p *proxy) init() error {
 		Email:      p.Email,
 		Client: &acme.Client{
 			HTTPClient: &http.Client{
-				Timeout: 10 * time.Second,
+				Timeout: 15 * time.Second,
 			},
 		},
 	}
@@ -134,9 +133,9 @@ func (p *proxy) serve(l net.Listener) error {
 					delay = 5 * time.Millisecond
 				} else {
 					delay *= 2
-				}
-				if delay > time.Second {
-					delay = time.Second
+					if delay > time.Second {
+						delay = time.Second
+					}
 				}
 				log.Printf("%v; retrying in %v", err, delay)
 				time.Sleep(delay)
@@ -153,12 +152,12 @@ func (p *proxy) handle(c net.Conn) {
 	tlc := tls.Server(c, p.config)
 	err := tlc.Handshake()
 	if err != nil {
-		c.Close()
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
+		c.Close()
 		return
 	}
 	cs := tlc.ConnectionState()
-	// Protocol is guranteed to exist
+	// Protocol is guaranteed to exist.
 	hosts := p.backends[cs.NegotiatedProtocol]
 	b, ok := hosts[cs.ServerName]
 	if !ok {
@@ -187,8 +186,8 @@ func (b *backend) handle(c1 net.Conn) {
 	defer b.logf("disconnected %v", raddr)
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
-		c1.Close()
 		b.log(err)
+		c1.Close()
 		return
 	}
 	done := make(chan struct{})
