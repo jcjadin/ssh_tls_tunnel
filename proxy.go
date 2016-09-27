@@ -155,7 +155,6 @@ func (p *proxy) serve(l net.Listener) error {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			// TODO test
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if delay == 0 {
 					delay = 5 * time.Millisecond
@@ -165,7 +164,8 @@ func (p *proxy) serve(l net.Listener) error {
 				if delay > time.Second {
 					delay = time.Second
 				}
-				log.Printf("%v; retrying in %v", err, delay)
+				// TODO test
+				log.Printf("accept error: %v; retrying in %v", err, delay)
 				time.Sleep(delay)
 				continue
 			}
@@ -174,12 +174,6 @@ func (p *proxy) serve(l net.Listener) error {
 		delay = 0
 		go p.handle(c)
 	}
-}
-
-var d = &net.Dialer{
-	Timeout:   3 * time.Second,
-	KeepAlive: 30 * time.Second,
-	DualStack: true,
 }
 
 func (p *proxy) handle(c net.Conn) {
@@ -202,6 +196,12 @@ func (p *proxy) handle(c net.Conn) {
 type backend struct {
 	name string
 	addr string
+}
+
+var d = &net.Dialer{
+	Timeout:   3 * time.Second,
+	KeepAlive: 30 * time.Second,
+	DualStack: true,
 }
 
 func (b *backend) handle(c1 net.Conn) {
