@@ -168,6 +168,7 @@ func (p *proxy) serve(l net.Listener) error {
 				time.Sleep(delay)
 				continue
 			}
+			// TODO test
 			return err
 		}
 		delay = 0
@@ -180,6 +181,7 @@ func (p *proxy) handle(c net.Conn) {
 	err := tlc.Handshake()
 	if err != nil {
 		c.Close()
+		// TODO further evalute based on logs
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
 		return
 	}
