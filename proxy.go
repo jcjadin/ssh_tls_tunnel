@@ -44,7 +44,7 @@ func (p *proxy) init() error {
 	}
 
 	if len(p.BindInterfaces) == 0 {
-		return errors.New("bindInterfaces is missing or empty")
+		return errors.New("bindInterfaces is empty or missing")
 	}
 
 	if p.Default == nil {
@@ -124,7 +124,7 @@ func (p *proxy) init() error {
 	keys := make([][32]byte, 1, 96)
 	_, err := rand.Read(keys[0][:])
 	if err != nil {
-		return err
+		return fmt.Errorf("session ticket key generation failed: %v", err)
 	}
 	p.config.SetSessionTicketKeys(keys)
 	go p.rotateSessionTicketKeys(keys)
@@ -135,7 +135,7 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 	for {
 		// TODO test
 		time.Sleep(1 * time.Hour)
-		log.Println("rotating session ticket keys")
+		log.Print("rotating session ticket keys")
 		if len(keys) < cap(keys) {
 			keys = keys[:len(keys)+1]
 		}
@@ -144,7 +144,7 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 		}
 		_, err := rand.Read(keys[0][:])
 		if err != nil {
-			log.Fatalf("error rotating session ticket keys: %v", err)
+			log.Fatalf("error generating session ticket key: %v", err)
 		}
 		p.config.SetSessionTicketKeys(keys)
 	}
@@ -169,7 +169,8 @@ func (p *proxy) serve(l net.Listener) error {
 				time.Sleep(delay)
 				continue
 			}
-			return err
+			// TODO test
+			return fmt.Errorf("accept error: %v", err)
 		}
 		delay = 0
 		go p.handle(c)
@@ -211,6 +212,7 @@ func (b *backend) handle(c1 net.Conn) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		c1.Close()
+		// No need for extra context.
 		b.log(err)
 		return
 	}
