@@ -21,21 +21,21 @@ import (
 type proxy struct {
 	Hosts          []string `json:"hosts"`
 	BindInterfaces []string `json:"bindInterfaces"`
-	Email          string   `json:"email,omitempty"`
+	Email          string   `json:"email"`
 	Default        *struct {
 		Fallback string            `json:"fallback"`
-		Hosts    map[string]string `json:"hosts,omitempty"`
+		Hosts    map[string]string `json:"hosts"`
 	} `json:"default"`
 	Protos []struct {
 		Name     string            `json:"name"`
 		Fallback string            `json:"fallback"`
-		Hosts    map[string]string `json:"hosts,omitempty"`
-	} `json:"protos,omitempty"`
+		Hosts    map[string]string `json:"hosts"`
+	} `json:"protos"`
 
+	// Map of protocol names to hostnames to backends.
 	backends map[string]map[string]*backend
-
-	manager autocert.Manager
-	config  *tls.Config
+	manager  autocert.Manager
+	config   *tls.Config
 }
 
 func (p *proxy) init() error {
