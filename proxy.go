@@ -19,17 +19,12 @@ import (
 
 // TODO custom config file
 type proxy struct {
-	Hosts          []string `json:"hosts"`
 	BindInterfaces []string `json:"bindInterfaces"`
 	Email          string   `json:"email"`
-	Default        *struct {
-		Fallback string            `json:"fallback"`
-		Hosts    map[string]string `json:"hosts"`
-	} `json:"default"`
-	Protos []struct {
-		Name     string            `json:"name"`
-		Fallback string            `json:"fallback"`
-		Hosts    map[string]string `json:"hosts"`
+	DefaultProto   string   `json:"defaultProto"`
+	Protos         []struct {
+		Name  string            `json:"name"`
+		Hosts map[string]string `json:"hosts"`
 	} `json:"protos"`
 
 	// Map of protocol names to hostnames to backends.
@@ -39,75 +34,46 @@ type proxy struct {
 }
 
 func (p *proxy) init() error {
-	if len(p.Hosts) == 0 {
-		return errors.New("hosts is empty or missing")
-	}
-
 	if len(p.BindInterfaces) == 0 {
 		return errors.New("bindInterfaces is empty or missing")
 	}
 
-	if p.Default == nil {
-		return errors.New("missing default")
+	if p.DefaultProto == "" {
+		return errors.New("default is empty or missing")
 	}
-	if p.Default.Fallback == "" {
-		return errors.New("default.fallback is empty or missing")
-	}
-	p.backends = make(map[string]map[string]*backend)
-	p.backends[""] = make(map[string]*backend)
-	p.backends[""][""] = &backend{
-		`""."": `,
-		p.Default.Fallback,
-	}
-	for host, addr := range p.Default.Hosts {
-		if host == "" {
-			return errors.New("empty key in default.hosts")
-		}
-		p.backends[""][host] = &backend{
-			fmt.Sprintf(`"".%q: `, host),
-			addr,
-		}
-	}
-
-	hosts := append([]string(nil), p.Hosts...)
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
-	// TODO Is this how priority should work?
-	// TODO no this is wrong because of how acme/autocert denies if host is not setup
+	p.backends = make(map[string]map[string]*backend)
+	var hosts []string
 	for i, proto := range p.Protos {
 		if proto.Name == "" {
 			return fmt.Errorf("protos[%d].name is empty or missing", i)
 		}
+		if len(proto.Hosts) < 1 {
+			return fmt.Errorf("protos[%d].hosts is empty", i)
+		}
 		p.backends[proto.Name] = make(map[string]*backend)
-		if proto.Fallback == "" {
-			// TODO inconsistent because we do not check if addresses below
-			// are empty or not. Fix with new configuration file library.
-			return fmt.Errorf("protos[%d].fallback is empty or missing", i)
-		}
-		p.backends[proto.Name][""] = &backend{
-			fmt.Sprintf(`%q."": `, proto.Name),
-			proto.Fallback,
-		}
-		for _, host := range p.Hosts {
-			p.backends[proto.Name][host] = p.backends[proto.Name][""]
-		}
 		for host, addr := range proto.Hosts {
 			if host == "" {
 				return fmt.Errorf("empty key in protos[%d].hosts", i)
+			} else if addr == "" {
+				return fmt.Errorf("protos[%d].hosts.%s is empty", i, host)
 			}
 			p.backends[proto.Name][host] = &backend{
 				fmt.Sprintf("%q.%q: ", proto.Name, host),
 				addr,
 			}
-			for _, host2 := range hosts {
-				if host == host2 {
-					continue
-				}
+			if !contains(hosts, host) {
+				hosts = append(hosts, host)
 			}
-			hosts = append(hosts, host)
 		}
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
+	}
+	var ok bool
+	p.backends[""], ok = p.backends[p.DefaultProto]
+	if !ok {
+		return fmt.Errorf("defaultProto %q is not defined", p.DefaultProto)
 	}
 
 	p.manager = autocert.Manager{
@@ -130,6 +96,15 @@ func (p *proxy) init() error {
 	p.config.SetSessionTicketKeys(keys)
 	go p.rotateSessionTicketKeys(keys)
 	return nil
+}
+
+func contains(strs []string, s1 string) bool {
+	for _, s2 := range strs {
+		if s1 == s2 {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
@@ -183,10 +158,14 @@ func (p *proxy) handle(c net.Conn) {
 		return
 	}
 	cs := tlc.ConnectionState()
+	// Protocol is guranteed to exist
 	hosts := p.backends[cs.NegotiatedProtocol]
 	b, ok := hosts[cs.ServerName]
 	if !ok {
-		b = hosts[""]
+		log.Printf("unable to find %q.%q for %v", cs.NegotiatedProtocol,
+			cs.ServerName, c.RemoteAddr())
+		c.Close()
+		return
 	}
 	b.handle(tlc)
 }
