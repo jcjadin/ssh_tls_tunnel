@@ -99,9 +99,12 @@ func (p *proxy) init() error {
 				fmt.Sprintf("%q.%q: ", proto.Name, host),
 				addr,
 			}
-			if !contains(hosts, host) {
-				hosts = append(hosts, host)
+			for _, host2 := range hosts {
+				if host == host2 {
+					continue
+				}
 			}
+			hosts = append(hosts, host)
 		}
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
@@ -128,13 +131,22 @@ func (p *proxy) init() error {
 	return nil
 }
 
-func contains(strs []string, s1 string) bool {
-	for _, s2 := range strs {
-		if s1 == s2 {
-			return true
+func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
+	for {
+		time.Sleep(1 * time.Hour)
+		log.Println("rotating session ticket keys")
+		if len(keys) < cap(keys) {
+			keys = keys[:len(keys)+1]
 		}
+		for s1, s2 := len(keys)-2, len(keys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
+			keys[s2] = keys[s1]
+		}
+		_, err := rand.Read(keys[0][:])
+		if err != nil {
+			log.Fatalf("error rotating session ticket keys: %v", err)
+		}
+		p.config.SetSessionTicketKeys(keys)
 	}
-	return false
 }
 
 func (p *proxy) serve(l net.Listener) error {
@@ -159,24 +171,6 @@ func (p *proxy) serve(l net.Listener) error {
 		}
 		delay = 0
 		go p.handle(c)
-	}
-}
-
-func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
-	for {
-		time.Sleep(1 * time.Hour)
-		log.Println("rotating session ticket keys")
-		if len(keys) < cap(keys) {
-			keys = keys[:len(keys)+1]
-		}
-		for s1, s2 := len(keys)-2, len(keys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
-			keys[s2] = keys[s1]
-		}
-		_, err := rand.Read(keys[0][:])
-		if err != nil {
-			log.Fatalf("error rotating session ticket keys: %v", err)
-		}
-		p.config.SetSessionTicketKeys(keys)
 	}
 }
 
@@ -211,7 +205,7 @@ type backend struct {
 	addr string
 }
 
-func (b *backend) handle(c1 net.Conn) {
+func (b *backend) handle(c1 io.ReadWriteCloser) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		c1.Close()

@@ -3,19 +3,12 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
-	stdlog "log"
 	"net"
 	"os"
 	"runtime"
 
 	"github.com/nhooyr/log"
-	"github.com/xenolf/lego/acme"
 )
-
-func init() {
-	acme.Logger = stdlog.New(ioutil.Discard, "", 0)
-}
 
 func main() {
 	configDir := flag.String("c", "/usr/local/etc/tlsmuxd", "path to the configuration directory")
@@ -41,14 +34,14 @@ func main() {
 	}
 
 	for _, host := range p.BindInterfaces {
-		l, err := net.Listen("tcp", net.JoinHostPort(host, "https"))
-		if err != nil {
-			log.Fatal(err)
-		}
-		go func() {
-			log.Printf("serving connections on %v", l.Addr())
+		go func(host string) {
+			l, err := net.Listen("tcp", net.JoinHostPort(host, "https"))
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("listening on %v", l.Addr())
 			log.Fatal(p.serve(tcpKeepAliveListener{l.(*net.TCPListener)}))
-		}()
+		}(host)
 	}
 	runtime.Goexit()
 }
