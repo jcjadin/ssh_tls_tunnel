@@ -7,9 +7,7 @@ import (
 	stdlog "log"
 	"net"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 
 	"github.com/nhooyr/log"
 	"github.com/xenolf/lego/acme"
@@ -20,34 +18,23 @@ func init() {
 }
 
 func main() {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigs
-		log.Print("terminating")
-		os.Exit(0)
-	}()
-
 	configDir := flag.String("c", "/usr/local/etc/tlsmuxd", "path to the configuration directory")
 	flag.Parse()
 	err := os.Chdir(*configDir)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	f, err := os.Open("config.json")
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	p := new(proxy)
+	var p *proxy
 	err = json.NewDecoder(f).Decode(&p)
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = f.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
+	f.Close()
 	err = p.init()
 	if err != nil {
 		log.Fatal(err)
@@ -59,11 +46,10 @@ func main() {
 			log.Fatal(err)
 		}
 		go func() {
+			log.Printf("serving connections on %v", l.Addr())
 			log.Fatal(p.serve(tcpKeepAliveListener{l.(*net.TCPListener)}))
 		}()
 	}
-
-	log.Print("initialized")
 	runtime.Goexit()
 }
 

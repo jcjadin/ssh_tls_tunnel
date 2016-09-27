@@ -3,19 +3,18 @@ package main
 import (
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
-	"os"
+	"net/http"
 	"sync"
 	"time"
 
-	"github.com/nhooyr/log"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
 
-	"rsc.io/letsencrypt"
+	"github.com/nhooyr/log"
 )
 
 // TODO custom config file
@@ -35,28 +34,17 @@ type proxy struct {
 
 	backends map[string]map[string]*backend
 
-	manager *letsencrypt.Manager
+	manager autocert.Manager
 	config  *tls.Config
 }
 
 func (p *proxy) init() error {
+	if len(p.Hosts) == 0 {
+		return errors.New("hosts is empty or missing")
+	}
+
 	if len(p.BindInterfaces) == 0 {
 		return errors.New("bindInterfaces is missing or empty")
-	}
-
-	p.manager = new(letsencrypt.Manager)
-	err := p.manager.CacheFile("letsencrypt.cache")
-	if err != nil {
-		return err
-	}
-
-	if !p.manager.Registered() && p.Email != "" {
-		err = p.manager.Register(p.Email, func(tosURL string) bool {
-			return true
-		})
-		if err != nil {
-			return err
-		}
 	}
 
 	if p.Default == nil {
@@ -81,16 +69,11 @@ func (p *proxy) init() error {
 		}
 	}
 
-	// hosts are actually set at the bottom of the function
-	// because others might be under a protocol.
-	if len(p.Hosts) == 0 {
-		return errors.New("hosts is empty or missing")
-	}
 	hosts := append([]string(nil), p.Hosts...)
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
 	}
-	// TODO rethink all of the priority
+	// TODO Is this how priority should work?
 	for i, proto := range p.Protos {
 		if proto.Name == "" {
 			return fmt.Errorf("protos[%d].name is empty or missing", i)
@@ -98,7 +81,7 @@ func (p *proxy) init() error {
 		p.backends[proto.Name] = make(map[string]*backend)
 		if proto.Fallback == "" {
 			// TODO inconsistent because we do not check if addresses below
-			// are empty or not
+			// are empty or not. Fix with new configuration file library.
 			return fmt.Errorf("protos[%d].fallback is empty or missing", i)
 		}
 		p.backends[proto.Name][""] = &backend{
@@ -116,22 +99,32 @@ func (p *proxy) init() error {
 				fmt.Sprintf("%q.%q: ", proto.Name, host),
 				addr,
 			}
-			if !contains(p.Hosts, host) {
+			if !contains(hosts, host) {
 				hosts = append(hosts, host)
 			}
 		}
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
-	p.manager.SetHosts(hosts)
-	if len(p.SessionTicketKeys) == 0 {
-		p.SessionTicketKeys = make([][32]byte, 1, 3)
-		_, err = rand.Read(p.SessionTicketKeys[0][:])
-		if err != nil {
-			return err
-		}
-		p.config.SetSessionTicketKeys(p.SessionTicketKeys)
-		p.rotateSessionTicketKeys()
+
+	p.manager = autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist(hosts...),
+		Cache:      autocert.DirCache("crypto"),
+		Email:      p.Email,
+		Client: &acme.Client{
+			HTTPClient: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		},
 	}
+
+	keys := make([][32]byte, 1, 96)
+	_, err := rand.Read(keys[0][:])
+	if err != nil {
+		return err
+	}
+	p.config.SetSessionTicketKeys(keys)
+	go p.rotateSessionTicketKeys(keys)
 	return nil
 }
 
@@ -169,56 +162,21 @@ func (p *proxy) serve(l net.Listener) error {
 	}
 }
 
-func (p *proxy) marshal(tmpdir string) (err error) {
-	f, err := ioutil.TempFile(tmpdir, "config.json")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			os.Remove(f.Name())
-		}
-	}()
-	enc = json.NewEncoder(f)
-	enc.SetIndent("", "\t")
-	enc.SetEscapeHTML(false)
-	err = enc.Encode(&p)
-	if err != nil {
-		return
-	}
-	err = f.Sync()
-	if err != nil {
-		return
-	}
-	err = f.Close()
-	if err != nil {
-		return
-	}
-	err = os.Rename(f.Name(), "config.json")
-	if err != nil {
-		return
-	}
-}
-
-func (p *proxy) rotateSessionTicketKeys() {
-	tmpdir := os.TempDir()
+func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 	for {
-		err := p.marshal(tmpdir)
-		if err != nil {
-			log.Fatal(err)
-		}
 		time.Sleep(1 * time.Hour)
 		log.Println("rotating session ticket keys")
-		if len(p.SessionTicketKeys) < 16 {
-			p.SessionTicketKeys = append(p.SessionTicketKeys, [32]byte{})
+		if len(keys) < cap(keys) {
+			keys = keys[:len(keys)+1]
 		}
-		for s1, s2 := len(p.SessionTicketKeys)-2, len(p.SessionTicketKeys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
-			p.SessionTicketKeys[s2] = p.SessionTicketKeys[s1]
+		for s1, s2 := len(keys)-2, len(keys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
+			keys[s2] = keys[s1]
 		}
-		if _, err := rand.Read(p.SessionTicketKeys[0][:]); err != nil {
+		_, err := rand.Read(keys[0][:])
+		if err != nil {
 			log.Fatalf("error rotating session ticket keys: %v", err)
 		}
-		p.config.SetSessionTicketKeys(p.SessionTicketKeys)
+		p.config.SetSessionTicketKeys(keys)
 	}
 }
 
@@ -228,7 +186,6 @@ var d = &net.Dialer{
 	DualStack: true,
 }
 
-// TODO maybe better logging?
 func (p *proxy) handle(c net.Conn) {
 	raddr := c.RemoteAddr()
 	tlc := tls.Server(c, p.config)
@@ -239,15 +196,14 @@ func (p *proxy) handle(c net.Conn) {
 		return
 	}
 	cs := tlc.ConnectionState()
-	log.Printf("accepted %v for %q.%q", raddr, cs.NegotiatedProtocol, cs.ServerName)
-	defer log.Printf("disconnected %v", raddr)
-	hosts, ok := p.backends[cs.NegotiatedProtocol]
+	hosts := p.backends[cs.NegotiatedProtocol]
 	b, ok := hosts[cs.ServerName]
 	if !ok {
-		log.Printf(`%v: %q.%q not found; falling back to %q.""`, raddr, cs.NegotiatedProtocol, cs.ServerName, cs.NegotiatedProtocol)
 		b = hosts[""]
 	}
+	b.logf("accepted %v", raddr)
 	b.handle(tlc)
+	b.logf("disconnected %v", raddr)
 }
 
 type backend struct {
@@ -255,7 +211,7 @@ type backend struct {
 	addr string
 }
 
-func (b *backend) handle(c1 io.ReadWriteCloser) {
+func (b *backend) handle(c1 net.Conn) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		c1.Close()
@@ -284,6 +240,10 @@ func (b *backend) handle(c1 io.ReadWriteCloser) {
 		c2.Close()
 	})
 	<-done
+}
+
+func (b *backend) logf(format string, v ...interface{}) {
+	log.Printf(b.name+format, v...)
 }
 
 func (b *backend) log(err error) {
