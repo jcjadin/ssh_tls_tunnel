@@ -37,3 +37,4 @@ TODO:
 -----
 - [ ] Tests
 - [ ] Docs
+- [ ] Unix domain sockets
