@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -39,7 +40,7 @@ type proxy struct {
 	config   *tls.Config
 }
 
-func (p *proxy) init() error {
+func (p *proxy) init(cacheDir string) error {
 	if len(p.BindInterfaces) == 0 {
 		p.BindInterfaces = []string{""}
 	}
@@ -84,7 +85,7 @@ func (p *proxy) init() error {
 	p.manager = autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(hosts...),
-		Cache:      autocert.DirCache("crypto"),
+		Cache:      autocert.DirCache(filepath.Join(cacheDir, "crypto")),
 		Email:      p.Email,
 		Client: &acme.Client{
 			HTTPClient: &http.Client{
