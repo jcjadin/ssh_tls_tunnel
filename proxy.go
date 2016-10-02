@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -85,7 +84,7 @@ func (p *proxy) init(cacheDir string) error {
 	p.manager = autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(hosts...),
-		Cache:      autocert.DirCache(filepath.Join(cacheDir, "crypto")),
+		Cache:      autocert.DirCache(cacheDir),
 		Email:      p.Email,
 		Client: &acme.Client{
 			HTTPClient: &http.Client{
