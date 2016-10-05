@@ -33,7 +33,7 @@ type proxy struct {
 		Name  string            `json:"name"`
 		Hosts map[string]string `json:"hosts"`
 	} `json:"protos"`
-	DefaultProto   string   `json:"defaultProto"`
+	DefaultProto string `json:"defaultProto"`
 
 	// Map of protocol names to hostnames to backends.
 	backends map[string]map[string]*backend
@@ -164,7 +164,7 @@ func (p *proxy) handle(c net.Conn) {
 	err := tlc.Handshake()
 	if err != nil {
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
-		c.Close()
+		_ = c.Close()
 		return
 	}
 	cs := tlc.ConnectionState()
@@ -174,7 +174,7 @@ func (p *proxy) handle(c net.Conn) {
 	if !ok {
 		log.Printf("unable to find %q.%q for %v", cs.NegotiatedProtocol,
 			cs.ServerName, c.RemoteAddr())
-		c.Close()
+		_ = c.Close()
 		return
 	}
 	b.handle(tlc)
@@ -192,7 +192,7 @@ func (b *backend) handle(c1 net.Conn) {
 	c2, err := d.Dial("tcp", b.addr)
 	if err != nil {
 		b.log(err)
-		c1.Close()
+		_ = c1.Close()
 		return
 	}
 	done := make(chan struct{})
@@ -203,8 +203,8 @@ func (b *backend) handle(c1 net.Conn) {
 			b.logf("error copying %v to %v: %v", raddr, c2.RemoteAddr(), err)
 		}
 		once.Do(func() {
-			c2.Close()
-			c1.Close()
+			_ = c2.Close()
+			_ = c1.Close()
 		})
 		close(done)
 	}()
@@ -213,8 +213,8 @@ func (b *backend) handle(c1 net.Conn) {
 		b.logf("error copying %v to %v: %v", c2.RemoteAddr(), raddr, err)
 	}
 	once.Do(func() {
-		c1.Close()
-		c2.Close()
+		_ = c1.Close()
+		_ = c2.Close()
 	})
 	<-done
 }

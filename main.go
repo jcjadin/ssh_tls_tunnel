@@ -23,7 +23,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 	err = p.init()
 	if err != nil {
 		log.Fatal(err)
@@ -51,7 +51,7 @@ func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
 	if err != nil {
 		return
 	}
-	tc.SetKeepAlive(true)
-	tc.SetKeepAlivePeriod(d.KeepAlive)
+	_ = tc.SetKeepAlive(true)
+	_ = tc.SetKeepAlivePeriod(d.KeepAlive)
 	return tc, nil
 }
