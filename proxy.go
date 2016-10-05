@@ -19,8 +19,9 @@ import (
 
 var d = &net.Dialer{
 	Timeout:   3 * time.Second,
-	KeepAlive: 30 * time.Second,
-	DualStack: true,
+	KeepAlive: time.Minute,
+	// No DualStack because the dialer is used to connect
+	// locally or within a local network, not on the internet.
 }
 
 // TODO custom config file
