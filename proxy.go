@@ -27,6 +27,7 @@ var d = &net.Dialer{
 type proxy struct {
 	BindInterfaces []string `json:"bindInterfaces"`
 	Email          string   `json:"email"`
+	CacheDir       string   `json:"cacheDir"`
 	DefaultProto   string   `json:"defaultProto"`
 	Protos         []struct {
 		Name  string            `json:"name"`
@@ -39,7 +40,7 @@ type proxy struct {
 	config   *tls.Config
 }
 
-func (p *proxy) init(cacheDir string) error {
+func (p *proxy) init() error {
 	if len(p.BindInterfaces) == 0 {
 		p.BindInterfaces = []string{""}
 	}
@@ -81,10 +82,13 @@ func (p *proxy) init(cacheDir string) error {
 		return fmt.Errorf("defaultProto (%q) is not defined in protos", p.DefaultProto)
 	}
 
+	if p.CacheDir == "" {
+		return errors.New("empty or missing cacheDir")
+	}
 	p.manager = autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(hosts...),
-		Cache:      autocert.DirCache(cacheDir),
+		Cache:      autocert.DirCache(p.CacheDir),
 		Email:      p.Email,
 		Client: &acme.Client{
 			HTTPClient: &http.Client{

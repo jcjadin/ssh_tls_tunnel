@@ -12,7 +12,6 @@ import (
 
 func main() {
 	configPath := flag.String("c", "", "path to configuration file")
-	cacheDir := flag.String("d", "", "path to cache directory")
 	flag.Parse()
 
 	f, err := os.Open(*configPath)
@@ -25,7 +24,7 @@ func main() {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
 	f.Close()
-	err = p.init(*cacheDir)
+	err = p.init()
 	if err != nil {
 		log.Fatal(err)
 	}
