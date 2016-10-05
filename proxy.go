@@ -21,7 +21,7 @@ var d = &net.Dialer{
 	Timeout:   3 * time.Second,
 	KeepAlive: time.Minute,
 	// No DualStack because the dialer is used to connect
-	// locally or within a local network, not on the internet.
+	// locally, not on the internet.
 }
 
 // TODO custom config file
@@ -29,11 +29,11 @@ type proxy struct {
 	BindInterfaces []string `json:"bindInterfaces"`
 	Email          string   `json:"email"`
 	CacheDir       string   `json:"cacheDir"`
-	DefaultProto   string   `json:"defaultProto"`
 	Protos         []struct {
 		Name  string            `json:"name"`
 		Hosts map[string]string `json:"hosts"`
 	} `json:"protos"`
+	DefaultProto   string   `json:"defaultProto"`
 
 	// Map of protocol names to hostnames to backends.
 	backends map[string]map[string]*backend
