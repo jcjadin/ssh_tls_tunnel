@@ -52,7 +52,13 @@ func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
 	if err != nil {
 		return
 	}
-	_ = tc.SetKeepAlive(true)
-	_ = tc.SetKeepAlivePeriod(time.Minute)
+	err = tc.SetKeepAlive(true)
+	if err != nil {
+		return
+	}
+	err = tc.SetKeepAlivePeriod(time.Minute)
+	if err != nil {
+		return
+	}
 	return tc, nil
 }
