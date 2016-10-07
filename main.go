@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/nhooyr/log"
 )
@@ -52,6 +53,6 @@ func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
 		return
 	}
 	_ = tc.SetKeepAlive(true)
-	_ = tc.SetKeepAlivePeriod(d.KeepAlive)
+	_ = tc.SetKeepAlivePeriod(time.Minute)
 	return tc, nil
 }

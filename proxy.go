@@ -18,10 +18,12 @@ import (
 )
 
 var d = &net.Dialer{
-	Timeout:   3 * time.Second,
-	KeepAlive: time.Minute,
-	// No DualStack because the dialer is used to connect
-	// locally, not on the internet.
+	Timeout: 3 * time.Second,
+	// No DualStack or KeepAlive because the dialer is used to
+	// connect locally, not on the internet.
+	// Thus there is no need to worry about broken IPv6
+	// and KeepAlive is handled by incoming connection because
+	// they are proxied.
 }
 
 // TODO custom config file
