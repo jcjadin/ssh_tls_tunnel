@@ -17,15 +17,6 @@ import (
 	"github.com/nhooyr/log"
 )
 
-var d = &net.Dialer{
-	Timeout: 3 * time.Second,
-	// No DualStack or KeepAlive because the dialer is used to
-	// connect locally, not on the internet.
-	// Thus there is no need to worry about broken IPv6
-	// and KeepAlive is handled by incoming connection because
-	// they are proxied.
-}
-
 // TODO custom config file
 type proxy struct {
 	BindInterfaces []string `json:"bindInterfaces"`
@@ -185,6 +176,15 @@ func (p *proxy) handle(c net.Conn) {
 type backend struct {
 	name string
 	addr string
+}
+
+var d = &net.Dialer{
+	Timeout: 3 * time.Second,
+	// No DualStack or KeepAlive because the dialer is used to
+	// connect locally, not on the internet.
+	// Thus there is no need to worry about broken IPv6
+	// and KeepAlive is handled by incoming connection because
+	// they are proxied.
 }
 
 func (b *backend) handle(c1 net.Conn) {
