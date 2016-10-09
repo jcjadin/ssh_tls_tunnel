@@ -42,8 +42,9 @@ func (p *proxy) init() error {
 		return errors.New("defaultProto is empty or missing")
 	}
 	p.config = &tls.Config{
-		GetCertificate: p.manager.GetCertificate,
-		MinVersion:     tls.VersionTLS11,
+		GetCertificate:           p.manager.GetCertificate,
+		PreferServerCipherSuites: true, // See golang/go#12895 for why.
+		MinVersion:               tls.VersionTLS12,
 	}
 	p.backends = make(map[string]map[string]*backend)
 	var hosts []string
