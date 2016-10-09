@@ -43,6 +43,7 @@ func (p *proxy) init() error {
 	}
 	p.config = &tls.Config{
 		GetCertificate: p.manager.GetCertificate,
+		MinVersion:     tls.VersionTLS11,
 	}
 	p.backends = make(map[string]map[string]*backend)
 	var hosts []string
