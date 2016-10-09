@@ -130,6 +130,7 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 }
 
 func (p *proxy) serve(l net.Listener) error {
+	defer l.Close()
 	var delay time.Duration
 	for {
 		c, err := l.Accept()
