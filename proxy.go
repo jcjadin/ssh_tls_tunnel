@@ -187,6 +187,14 @@ var d = &net.Dialer{
 	// they are proxied.
 }
 
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		// TODO maybe different buffer size?
+		// benchmark pls
+		return make([]byte, 1<<15)
+	},
+}
+
 func (b *backend) handle(c1 net.Conn) {
 	raddr := c1.RemoteAddr()
 	b.logf("accepted %v", raddr)
@@ -197,28 +205,29 @@ func (b *backend) handle(c1 net.Conn) {
 		_ = c1.Close()
 		return
 	}
-	done := make(chan struct{})
-	var once sync.Once
-	go func() {
-		_, err := io.Copy(c2, c1)
-		if err != nil {
-			b.logf("error copying %v to %v: %v", raddr, c2.RemoteAddr(), err)
+	first := make(chan<- struct{}, 1)
+	var wg sync.WaitGroup
+	cp := func(dst net.Conn, src net.Conn) {
+		buf := bufferPool.Get().([]byte)
+		// TODO use splice on linux
+		// TODO needs some timeout to prevent torshammer ddos
+		_, err := io.CopyBuffer(dst, src, buf)
+		select {
+		case first <- struct{}{}:
+			if err != nil {
+				b.log(err)
+			}
+			_ = dst.Close()
+			_ = src.Close()
+		default:
 		}
-		once.Do(func() {
-			_ = c2.Close()
-			_ = c1.Close()
-		})
-		close(done)
-	}()
-	_, err = io.Copy(c1, c2)
-	if err != nil {
-		b.logf("error copying %v to %v: %v", c2.RemoteAddr(), raddr, err)
+		bufferPool.Put(buf)
+		wg.Done()
 	}
-	once.Do(func() {
-		_ = c1.Close()
-		_ = c2.Close()
-	})
-	<-done
+	wg.Add(2)
+	go cp(c1, c2)
+	go cp(c2, c1)
+	wg.Wait()
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
