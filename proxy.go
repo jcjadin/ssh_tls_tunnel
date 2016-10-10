@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/nhooyr/log"
+	"github.com/nhooyr/netutil"
 )
 
 type config struct {
@@ -106,12 +107,12 @@ func contains(strs []string, s1 string) bool {
 }
 
 func (p *proxy) listenAndServe() error {
-	l, err := net.Listen("tcp", ":https")
+	l, err := netutil.ListenTCPKeepAlive(":https")
 	if err != nil {
 		return err
 	}
 	log.Printf("listening on %v", l.Addr())
-	return p.serve(tcpKeepAliveListener{l.(*net.TCPListener)})
+	return p.serve(l)
 }
 
 func (p *proxy) serve(l net.Listener) error {
@@ -188,12 +189,8 @@ type backend struct {
 }
 
 var dialer = &net.Dialer{
-	Timeout: 3 * time.Second,
-	// No DualStack or KeepAlive because the dialer is used to
-	// connect locally, not on the internet.
-	// Thus there is no need to worry about broken IPv6
-	// and KeepAlive is handled by incoming connection because
-	// they are proxied.
+	Timeout:   3 * time.Second,
+	KeepAlive: time.Minute,
 }
 
 var bufferPool = sync.Pool{

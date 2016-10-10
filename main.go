@@ -3,9 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"net"
 	"os"
-	"time"
 
 	"github.com/nhooyr/log"
 )
@@ -29,24 +27,4 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Fatal(p.listenAndServe())
-}
-
-type tcpKeepAliveListener struct {
-	*net.TCPListener
-}
-
-func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
-	tc, err := l.AcceptTCP()
-	if err != nil {
-		return
-	}
-	err = tc.SetKeepAlive(true)
-	if err != nil {
-		return
-	}
-	err = tc.SetKeepAlivePeriod(time.Minute)
-	if err != nil {
-		return
-	}
-	return tc, nil
 }
