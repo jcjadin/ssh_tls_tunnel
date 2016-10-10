@@ -79,8 +79,8 @@ func newProxy(c *config) (*proxy, error) {
 				return nil, fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
 			}
 			p.backends[proto.Name][host] = &backend{
-				log:  log.Make(fmt.Sprintf("%q.%q:", proto.Name, host)),
 				addr: addr,
+				log:  log.Make(fmt.Sprintf("%q.%q", proto.Name, host)),
 			}
 			if !contains(hosts, host) {
 				hosts = append(hosts, host)
@@ -184,8 +184,8 @@ func (p *proxy) handle(c net.Conn) {
 }
 
 type backend struct {
-	log  log.Logger
 	addr string
+	log  log.Logger
 }
 
 var dialer = &net.Dialer{
