@@ -3,9 +3,6 @@
 ## Example config
 ```json
 {
-	"bindInterfaces": [
-		"example.com"
-	],
 	"email": "user@example.com",
 	"cacheDir": "/var/lib/tlsmuxd",
 	"protos": [{
