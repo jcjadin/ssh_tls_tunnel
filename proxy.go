@@ -36,8 +36,29 @@ type proxy struct {
 }
 
 func newProxy(c *config) (*proxy, error) {
-	p := new(proxy)
-	p.backends = make(map[string]map[string]*backend)
+	if c.CacheDir == "" {
+		return nil, errors.New("empty or missing cacheDir")
+	}
+	p := &proxy{
+		backends: make(map[string]map[string]*backend),
+		manager: autocert.Manager{
+			Prompt: autocert.AcceptTOS,
+			Cache:  autocert.DirCache(c.CacheDir),
+			Email:  c.Email,
+			Client: &acme.Client{
+				HTTPClient: &http.Client{
+					Timeout: 15 * time.Second,
+				},
+			},
+		},
+		config: &tls.Config{
+			// See golang/go#12895 for why.
+			PreferServerCipherSuites: true,
+			MinVersion:               tls.VersionTLS12,
+		},
+	}
+	p.config.GetCertificate = p.manager.GetCertificate
+
 	if c.DefaultProto == "" {
 		return nil, errors.New("defaultProto is empty or missing")
 	}
@@ -71,27 +92,7 @@ func newProxy(c *config) (*proxy, error) {
 	if !ok {
 		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", c.DefaultProto)
 	}
-
-	if c.CacheDir == "" {
-		return nil, errors.New("empty or missing cacheDir")
-	}
-	p.manager = autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		Cache:      autocert.DirCache(c.CacheDir),
-		HostPolicy: autocert.HostWhitelist(hosts...),
-		Email:      c.Email,
-		Client: &acme.Client{
-			HTTPClient: &http.Client{
-				Timeout: 15 * time.Second,
-			},
-		},
-	}
-	p.config = &tls.Config{
-		GetCertificate: p.manager.GetCertificate,
-		// See golang/go#12895 for why.
-		PreferServerCipherSuites: true,
-		MinVersion:               tls.VersionTLS12,
-	}
+	p.manager.HostPolicy = autocert.HostWhitelist(hosts...)
 	return p, nil
 }
 
