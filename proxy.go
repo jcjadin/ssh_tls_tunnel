@@ -63,8 +63,8 @@ func (p *proxy) init() error {
 				return fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
 			}
 			p.backends[proto.Name][host] = &backend{
-				fmt.Sprintf("%q.%q: ", proto.Name, host),
-				addr,
+				name: fmt.Sprintf("%q.%q: ", proto.Name, host),
+				addr: addr,
 			}
 			if !contains(hosts, host) {
 				hosts = append(hosts, host)
@@ -210,6 +210,7 @@ func (b *backend) handle(c1 net.Conn) {
 	first := make(chan<- struct{}, 1)
 	cp := func(dst net.Conn, src net.Conn) {
 		buf := bufferPool.Get().([]byte)
+		defer bufferPool.Put(buf)
 		// TODO use splice on linux
 		// TODO needs some timeout to prevent torshammer ddos
 		_, err := io.CopyBuffer(dst, src, buf)
@@ -223,7 +224,6 @@ func (b *backend) handle(c1 net.Conn) {
 			b.logf("disconnected %v", c1.RemoteAddr())
 		default:
 		}
-		bufferPool.Put(buf)
 	}
 	go cp(c1, c2)
 	cp(c2, c1)
