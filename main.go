@@ -20,13 +20,11 @@ func main() {
 		log.Fatal(err)
 	}
 	var p *proxy
-	err = json.NewDecoder(f).Decode(&p)
-	if err != nil {
+	if err = json.NewDecoder(f).Decode(&p); err != nil {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
 	_ = f.Close()
-	err = p.init()
-	if err != nil {
+	if err = p.init(); err != nil {
 		log.Fatal(err)
 	}
 

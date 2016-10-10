@@ -118,9 +118,7 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 		if len(keys) < cap(keys) {
 			keys = keys[:len(keys)+1]
 		}
-		for s1, s2 := len(keys)-2, len(keys)-1; s2 > 0; s1, s2 = s1-1, s2-1 {
-			keys[s2] = keys[s1]
-		}
+		copy(keys[1:], keys)
 		_, err := rand.Read(keys[0][:])
 		if err != nil {
 			log.Fatalf("error generating session ticket key: %v", err)
@@ -157,16 +155,14 @@ func (p *proxy) serve(l net.Listener) error {
 
 func (p *proxy) handle(c net.Conn) {
 	tlc := tls.Server(c, p.config)
-	err := tlc.Handshake()
-	if err != nil {
+	if err := tlc.Handshake(); err != nil {
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
 		_ = c.Close()
 		return
 	}
 	cs := tlc.ConnectionState()
 	// Protocol is guaranteed to exist.
-	hosts := p.backends[cs.NegotiatedProtocol]
-	b, ok := hosts[cs.ServerName]
+	b, ok := p.backends[cs.NegotiatedProtocol][cs.ServerName]
 	if !ok {
 		log.Printf("unable to find %q.%q for %v", cs.NegotiatedProtocol,
 			cs.ServerName, c.RemoteAddr())
