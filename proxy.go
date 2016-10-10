@@ -157,7 +157,7 @@ func (p *proxy) handle(c net.Conn) {
 	tlc := tls.Server(c, p.config)
 	if err := tlc.Handshake(); err != nil {
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
-		_ = c.Close()
+		c.Close()
 		return
 	}
 	cs := tlc.ConnectionState()
@@ -166,7 +166,7 @@ func (p *proxy) handle(c net.Conn) {
 	if !ok {
 		log.Printf("unable to find %q.%q for %v", cs.NegotiatedProtocol,
 			cs.ServerName, c.RemoteAddr())
-		_ = c.Close()
+		c.Close()
 		return
 	}
 	b.handle(tlc)
@@ -199,7 +199,7 @@ func (b *backend) handle(c1 net.Conn) {
 	c2, err := dialer.Dial("tcp", b.addr)
 	if err != nil {
 		b.log(err)
-		_ = c1.Close()
+		c1.Close()
 		b.logf("disconnected %v", c1.RemoteAddr())
 		return
 	}
@@ -215,8 +215,8 @@ func (b *backend) handle(c1 net.Conn) {
 			if err != nil {
 				b.log(err)
 			}
-			_ = dst.Close()
-			_ = src.Close()
+			dst.Close()
+			src.Close()
 			b.logf("disconnected %v", c1.RemoteAddr())
 		default:
 		}

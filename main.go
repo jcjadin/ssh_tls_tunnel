@@ -23,7 +23,7 @@ func main() {
 	if err = json.NewDecoder(f).Decode(&p); err != nil {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
-	_ = f.Close()
+	f.Close()
 	if err = p.init(); err != nil {
 		log.Fatal(err)
 	}
