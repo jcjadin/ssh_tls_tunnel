@@ -87,8 +87,9 @@ func newProxy(c *config) (*proxy, error) {
 		},
 	}
 	p.config = &tls.Config{
-		GetCertificate:           p.manager.GetCertificate,
-		PreferServerCipherSuites: true, // See golang/go#12895 for why.
+		GetCertificate: p.manager.GetCertificate,
+		// See golang/go#12895 for why.
+		PreferServerCipherSuites: true,
 		MinVersion:               tls.VersionTLS12,
 	}
 	return p, nil
@@ -114,7 +115,6 @@ func (p *proxy) listenAndServe() error {
 
 func (p *proxy) serve(l net.Listener) error {
 	defer l.Close()
-
 	keys := make([][32]byte, 1, 96)
 	_, err := rand.Read(keys[0][:])
 	if err != nil {
