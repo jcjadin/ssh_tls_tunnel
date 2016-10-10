@@ -16,13 +16,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	var c *config
-	if err = json.NewDecoder(f).Decode(&c); err != nil {
+	var pc *proxyConfig
+	if err = json.NewDecoder(f).Decode(&pc); err != nil {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
 	f.Close()
 
-	p, err := newProxy(c)
+	p, err := newProxy(pc)
 	if err != nil {
 		log.Fatal(err)
 	}

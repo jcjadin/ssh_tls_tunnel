@@ -18,7 +18,7 @@ import (
 	"github.com/nhooyr/netutil"
 )
 
-type config struct {
+type proxyConfig struct {
 	Email    string `json:"email"`
 	CacheDir string `json:"cacheDir"`
 	Protos   []struct {
@@ -36,16 +36,16 @@ type proxy struct {
 	config   *tls.Config
 }
 
-func newProxy(c *config) (*proxy, error) {
-	if c.CacheDir == "" {
+func newProxy(pc *proxyConfig) (*proxy, error) {
+	if pc.CacheDir == "" {
 		return nil, errors.New("empty or missing cacheDir")
 	}
 	p := &proxy{
 		backends: make(map[string]map[string]*backend),
 		manager: autocert.Manager{
 			Prompt: autocert.AcceptTOS,
-			Cache:  autocert.DirCache(c.CacheDir),
-			Email:  c.Email,
+			Cache:  autocert.DirCache(pc.CacheDir),
+			Email:  pc.Email,
 			Client: &acme.Client{
 				HTTPClient: &http.Client{
 					Timeout: 15 * time.Second,
@@ -60,11 +60,11 @@ func newProxy(c *config) (*proxy, error) {
 	}
 	p.config.GetCertificate = p.manager.GetCertificate
 
-	if c.DefaultProto == "" {
+	if pc.DefaultProto == "" {
 		return nil, errors.New("defaultProto is empty or missing")
 	}
 	var hosts []string
-	for i, proto := range c.Protos {
+	for i, proto := range pc.Protos {
 		if proto.Name == "" {
 			return nil, fmt.Errorf("protos[%d].name is empty or missing", i)
 		}
@@ -89,9 +89,9 @@ func newProxy(c *config) (*proxy, error) {
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
 	var ok bool
-	p.backends[""], ok = p.backends[c.DefaultProto]
+	p.backends[""], ok = p.backends[pc.DefaultProto]
 	if !ok {
-		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", c.DefaultProto)
+		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", pc.DefaultProto)
 	}
 	p.manager.HostPolicy = autocert.HostWhitelist(hosts...)
 	return p, nil
