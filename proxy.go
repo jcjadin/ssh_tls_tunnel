@@ -17,50 +17,65 @@ import (
 	"github.com/nhooyr/log"
 )
 
-// TODO custom config file
-type proxy struct {
-	BindInterfaces []string `json:"bindInterfaces"`
-	Email          string   `json:"email"`
-	CacheDir       string   `json:"cacheDir"`
-	Protos         []struct {
+type config struct {
+	Email    string `json:"email"`
+	CacheDir string `json:"cacheDir"`
+	Protos   []struct {
 		Name  string            `json:"name"`
 		Hosts map[string]string `json:"hosts"`
 	} `json:"protos"`
 	DefaultProto string `json:"defaultProto"`
+}
 
+// TODO custom config file
+type proxy struct {
 	// Map of protocol names to hostnames to backends.
 	backends map[string]map[string]*backend
 	manager  autocert.Manager
 	config   *tls.Config
 }
 
-func (p *proxy) init() error {
-	if len(p.BindInterfaces) == 0 {
-		p.BindInterfaces = []string{""}
+func newProxy(c *config) (*proxy, error) {
+	if c.CacheDir == "" {
+		return nil, errors.New("empty or missing cacheDir")
 	}
-	if p.DefaultProto == "" {
-		return errors.New("defaultProto is empty or missing")
+	p := &proxy{
+		backends: make(map[string]map[string]*backend),
+		manager: autocert.Manager{
+			Prompt: autocert.AcceptTOS,
+			Cache:  autocert.DirCache(c.CacheDir),
+			Email:  c.Email,
+			Client: &acme.Client{
+				HTTPClient: &http.Client{
+					Timeout: 15 * time.Second,
+				},
+			},
+		},
+
+		config: &tls.Config{
+			PreferServerCipherSuites: true, // See golang/go#12895 for why.
+			MinVersion:               tls.VersionTLS12,
+		},
 	}
-	p.config = &tls.Config{
-		GetCertificate:           p.manager.GetCertificate,
-		PreferServerCipherSuites: true, // See golang/go#12895 for why.
-		MinVersion:               tls.VersionTLS12,
+	p.config.GetCertificate = p.manager.GetCertificate
+
+	if c.DefaultProto == "" {
+		return nil, errors.New("defaultProto is empty or missing")
 	}
-	p.backends = make(map[string]map[string]*backend)
 	var hosts []string
-	for i, proto := range p.Protos {
+	for i, proto := range c.Protos {
 		if proto.Name == "" {
-			return fmt.Errorf("protos[%d].name is empty or missing", i)
+			return nil, fmt.Errorf("protos[%d].name is empty or missing", i)
 		}
 		if len(proto.Hosts) == 0 {
-			return fmt.Errorf("protos[%d].hosts is empty or missing", i)
+			return nil, fmt.Errorf("protos[%d].hosts is empty or missing", i)
 		}
 		p.backends[proto.Name] = make(map[string]*backend)
 		for host, addr := range proto.Hosts {
 			if host == "" {
-				return fmt.Errorf("empty key in protos[%d].hosts", i)
+				return nil, fmt.Errorf("empty key in protos[%d].hosts", i)
 			} else if addr == "" {
-				return fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
+				return nil, fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
 			}
 			p.backends[proto.Name][host] = &backend{
 				name: fmt.Sprintf("%q.%q: ", proto.Name, host),
@@ -73,34 +88,20 @@ func (p *proxy) init() error {
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
 	var ok bool
-	p.backends[""], ok = p.backends[p.DefaultProto]
+	p.backends[""], ok = p.backends[c.DefaultProto]
 	if !ok {
-		return fmt.Errorf("defaultProto (%q) is not defined in protos", p.DefaultProto)
+		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", c.DefaultProto)
 	}
-
-	if p.CacheDir == "" {
-		return errors.New("empty or missing cacheDir")
-	}
-	p.manager = autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		HostPolicy: autocert.HostWhitelist(hosts...),
-		Cache:      autocert.DirCache(p.CacheDir),
-		Email:      p.Email,
-		Client: &acme.Client{
-			HTTPClient: &http.Client{
-				Timeout: 15 * time.Second,
-			},
-		},
-	}
+	p.manager.HostPolicy = autocert.HostWhitelist(hosts...)
 
 	keys := make([][32]byte, 1, 96)
 	_, err := rand.Read(keys[0][:])
 	if err != nil {
-		return fmt.Errorf("session ticket key generation failed: %v", err)
+		return nil, fmt.Errorf("session ticket key generation failed: %v", err)
 	}
 	p.config.SetSessionTicketKeys(keys)
 	go p.rotateSessionTicketKeys(keys)
-	return nil
+	return p, nil
 }
 
 func contains(strs []string, s1 string) bool {
@@ -125,6 +126,15 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 		}
 		p.config.SetSessionTicketKeys(keys)
 	}
+}
+
+func (p *proxy) listenAndServe() error {
+	l, err := net.Listen("tcp", ":https")
+	if err != nil {
+		return err
+	}
+	log.Printf("listening on %v", l.Addr())
+	return p.serve(tcpKeepAliveListener{l.(*net.TCPListener)})
 }
 
 func (p *proxy) serve(l net.Listener) error {

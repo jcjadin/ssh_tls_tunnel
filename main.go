@@ -5,7 +5,6 @@ import (
 	"flag"
 	"net"
 	"os"
-	"runtime"
 	"time"
 
 	"github.com/nhooyr/log"
@@ -19,26 +18,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	var p *proxy
-	if err = json.NewDecoder(f).Decode(&p); err != nil {
+	var c *config
+	if err = json.NewDecoder(f).Decode(&c); err != nil {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
 	f.Close()
-	if err = p.init(); err != nil {
+	p, err := newProxy(c)
+	if err != nil {
 		log.Fatal(err)
 	}
-
-	for _, host := range p.BindInterfaces {
-		go func(host string) {
-			l, err := net.Listen("tcp", net.JoinHostPort(host, "https"))
-			if err != nil {
-				log.Fatal(err)
-			}
-			log.Printf("listening on %v", l.Addr())
-			log.Fatal(p.serve(tcpKeepAliveListener{l.(*net.TCPListener)}))
-		}(host)
-	}
-	runtime.Goexit()
+	log.Fatal(p.listenAndServe())
 }
 
 type tcpKeepAliveListener struct {
