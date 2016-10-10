@@ -27,7 +27,7 @@
 			"www.example2.com": "localhost:8084"
 		}
 	}],
-		"defaultProto": "http/1.1"
+	"defaultProto": "http/1.1"
 }
 ```
 
