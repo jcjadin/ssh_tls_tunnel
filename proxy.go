@@ -181,7 +181,7 @@ type backend struct {
 	addr string
 }
 
-var d = &net.Dialer{
+var dialer = &net.Dialer{
 	Timeout: 3 * time.Second,
 	// No DualStack or KeepAlive because the dialer is used to
 	// connect locally, not on the internet.
@@ -199,17 +199,15 @@ var bufferPool = sync.Pool{
 }
 
 func (b *backend) handle(c1 net.Conn) {
-	raddr := c1.RemoteAddr()
-	b.logf("accepted %v", raddr)
-	defer b.logf("disconnected %v", raddr)
-	c2, err := d.Dial("tcp", b.addr)
+	b.logf("accepted %v", c1.RemoteAddr())
+	c2, err := dialer.Dial("tcp", b.addr)
 	if err != nil {
 		b.log(err)
 		_ = c1.Close()
+		b.logf("disconnected %v", c1.RemoteAddr())
 		return
 	}
 	first := make(chan<- struct{}, 1)
-	var wg sync.WaitGroup
 	cp := func(dst net.Conn, src net.Conn) {
 		buf := bufferPool.Get().([]byte)
 		// TODO use splice on linux
@@ -222,15 +220,13 @@ func (b *backend) handle(c1 net.Conn) {
 			}
 			_ = dst.Close()
 			_ = src.Close()
+			b.logf("disconnected %v", c1.RemoteAddr())
 		default:
 		}
 		bufferPool.Put(buf)
-		wg.Done()
 	}
-	wg.Add(2)
 	go cp(c1, c2)
-	go cp(c2, c1)
-	wg.Wait()
+	cp(c2, c1)
 }
 
 func (b *backend) logf(format string, v ...interface{}) {
