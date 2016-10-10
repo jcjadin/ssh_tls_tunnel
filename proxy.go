@@ -36,29 +36,8 @@ type proxy struct {
 }
 
 func newProxy(c *config) (*proxy, error) {
-	if c.CacheDir == "" {
-		return nil, errors.New("empty or missing cacheDir")
-	}
-	p := &proxy{
-		backends: make(map[string]map[string]*backend),
-		manager: autocert.Manager{
-			Prompt: autocert.AcceptTOS,
-			Cache:  autocert.DirCache(c.CacheDir),
-			Email:  c.Email,
-			Client: &acme.Client{
-				HTTPClient: &http.Client{
-					Timeout: 15 * time.Second,
-				},
-			},
-		},
-
-		config: &tls.Config{
-			PreferServerCipherSuites: true, // See golang/go#12895 for why.
-			MinVersion:               tls.VersionTLS12,
-		},
-	}
-	p.config.GetCertificate = p.manager.GetCertificate
-
+	p := new(proxy)
+	p.backends = make(map[string]map[string]*backend)
 	if c.DefaultProto == "" {
 		return nil, errors.New("defaultProto is empty or missing")
 	}
@@ -78,7 +57,7 @@ func newProxy(c *config) (*proxy, error) {
 				return nil, fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
 			}
 			p.backends[proto.Name][host] = &backend{
-				name: fmt.Sprintf("%q.%q: ", proto.Name, host),
+				log:  log.Make(fmt.Sprintf("%q.%q:", proto.Name, host)),
 				addr: addr,
 			}
 			if !contains(hosts, host) {
@@ -92,15 +71,26 @@ func newProxy(c *config) (*proxy, error) {
 	if !ok {
 		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", c.DefaultProto)
 	}
-	p.manager.HostPolicy = autocert.HostWhitelist(hosts...)
 
-	keys := make([][32]byte, 1, 96)
-	_, err := rand.Read(keys[0][:])
-	if err != nil {
-		return nil, fmt.Errorf("session ticket key generation failed: %v", err)
+	if c.CacheDir == "" {
+		return nil, errors.New("empty or missing cacheDir")
 	}
-	p.config.SetSessionTicketKeys(keys)
-	go p.rotateSessionTicketKeys(keys)
+	p.manager = autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		Cache:      autocert.DirCache(c.CacheDir),
+		HostPolicy: autocert.HostWhitelist(hosts...),
+		Email:      c.Email,
+		Client: &acme.Client{
+			HTTPClient: &http.Client{
+				Timeout: 15 * time.Second,
+			},
+		},
+	}
+	p.config = &tls.Config{
+		GetCertificate:           p.manager.GetCertificate,
+		PreferServerCipherSuites: true, // See golang/go#12895 for why.
+		MinVersion:               tls.VersionTLS12,
+	}
 	return p, nil
 }
 
@@ -111,21 +101,6 @@ func contains(strs []string, s1 string) bool {
 		}
 	}
 	return false
-}
-
-func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
-	for {
-		time.Sleep(1 * time.Hour)
-		if len(keys) < cap(keys) {
-			keys = keys[:len(keys)+1]
-		}
-		copy(keys[1:], keys)
-		_, err := rand.Read(keys[0][:])
-		if err != nil {
-			log.Fatalf("error generating session ticket key: %v", err)
-		}
-		p.config.SetSessionTicketKeys(keys)
-	}
 }
 
 func (p *proxy) listenAndServe() error {
@@ -139,6 +114,15 @@ func (p *proxy) listenAndServe() error {
 
 func (p *proxy) serve(l net.Listener) error {
 	defer l.Close()
+
+	keys := make([][32]byte, 1, 96)
+	_, err := rand.Read(keys[0][:])
+	if err != nil {
+		return fmt.Errorf("session ticket key generation failed: %v", err)
+	}
+	p.config.SetSessionTicketKeys(keys)
+	go p.rotateSessionTicketKeys(keys)
+
 	var delay time.Duration
 	for {
 		c, err := l.Accept()
@@ -163,6 +147,21 @@ func (p *proxy) serve(l net.Listener) error {
 	}
 }
 
+func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
+	for {
+		time.Sleep(1 * time.Hour)
+		if len(keys) < cap(keys) {
+			keys = keys[:len(keys)+1]
+		}
+		copy(keys[1:], keys)
+		_, err := rand.Read(keys[0][:])
+		if err != nil {
+			log.Fatalf("error generating session ticket key: %v", err)
+		}
+		p.config.SetSessionTicketKeys(keys)
+	}
+}
+
 func (p *proxy) handle(c net.Conn) {
 	tlc := tls.Server(c, p.config)
 	if err := tlc.Handshake(); err != nil {
@@ -183,7 +182,7 @@ func (p *proxy) handle(c net.Conn) {
 }
 
 type backend struct {
-	name string
+	log  log.Logger
 	addr string
 }
 
@@ -205,12 +204,12 @@ var bufferPool = sync.Pool{
 }
 
 func (b *backend) handle(c1 net.Conn) {
-	b.logf("accepted %v", c1.RemoteAddr())
+	b.log.Printf("accepted %v", c1.RemoteAddr())
 	c2, err := dialer.Dial("tcp", b.addr)
 	if err != nil {
-		b.log(err)
+		b.log.Print(err)
 		c1.Close()
-		b.logf("disconnected %v", c1.RemoteAddr())
+		b.log.Printf("disconnected %v", c1.RemoteAddr())
 		return
 	}
 	first := make(chan<- struct{}, 1)
@@ -223,22 +222,14 @@ func (b *backend) handle(c1 net.Conn) {
 		select {
 		case first <- struct{}{}:
 			if err != nil {
-				b.log(err)
+				b.log.Print(err)
 			}
 			dst.Close()
 			src.Close()
-			b.logf("disconnected %v", c1.RemoteAddr())
+			b.log.Printf("disconnected %v", c1.RemoteAddr())
 		default:
 		}
 	}
 	go cp(c1, c2)
 	cp(c2, c1)
-}
-
-func (b *backend) logf(format string, v ...interface{}) {
-	log.Printf(b.name+format, v...)
-}
-
-func (b *backend) log(err error) {
-	log.Print(b.name, err)
 }

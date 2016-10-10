@@ -23,6 +23,7 @@ func main() {
 		log.Fatalf("error decoding config.json: %v", err)
 	}
 	f.Close()
+
 	p, err := newProxy(c)
 	if err != nil {
 		log.Fatal(err)
