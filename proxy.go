@@ -87,8 +87,7 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
 	}
 	var ok bool
-	p.backends[""], ok = p.backends[pc.DefaultProto]
-	if !ok {
+	if p.backends[""], ok = p.backends[pc.DefaultProto]; !ok {
 		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", pc.DefaultProto)
 	}
 	p.manager.HostPolicy = autocert.HostWhitelist(hosts...)
@@ -116,8 +115,7 @@ func (p *proxy) listenAndServe() error {
 func (p *proxy) serve(l net.Listener) error {
 	defer l.Close()
 	keys := make([][32]byte, 1, 96)
-	_, err := rand.Read(keys[0][:])
-	if err != nil {
+	if _, err := rand.Read(keys[0][:]); err != nil {
 		return fmt.Errorf("session ticket key generation failed: %v", err)
 	}
 	p.config.SetSessionTicketKeys(keys)
@@ -154,8 +152,7 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 			keys = keys[:len(keys)+1]
 		}
 		copy(keys[1:], keys)
-		_, err := rand.Read(keys[0][:])
-		if err != nil {
+		if _, err := rand.Read(keys[0][:]); err != nil {
 			log.Fatalf("error generating session ticket key: %v", err)
 		}
 		p.config.SetSessionTicketKeys(keys)
@@ -193,7 +190,7 @@ var dialer = &net.Dialer{
 
 func (b *backend) handle(c1 net.Conn) {
 	b.log.Printf("accepted %v", c1.RemoteAddr())
-	defer log.Printf("disconnected %v", c1.RemoteAddr())
+	defer b.log.Printf("disconnected %v", c1.RemoteAddr())
 	defer c1.Close()
 	c2, err := dialer.Dial("tcp", b.addr)
 	if err != nil {
@@ -201,8 +198,7 @@ func (b *backend) handle(c1 net.Conn) {
 		return
 	}
 	defer c2.Close()
-	err = netutil.Tunnel(c1, c2)
-	if err != nil {
+	if err = netutil.Tunnel(c1, c2); err != nil {
 		b.log.Print(err)
 	}
 }
