@@ -162,7 +162,9 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 func (p *proxy) handle(c net.Conn) {
 	tlc := tls.Server(c, p.config)
 	if err := tlc.Handshake(); err != nil {
+		// TODO should tls library handle this?
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
+		// TODO should this be deferred? See handle below.
 		c.Close()
 		return
 	}
