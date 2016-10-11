@@ -5,10 +5,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -193,41 +191,18 @@ var dialer = &net.Dialer{
 	KeepAlive: time.Minute,
 }
 
-var bufferPool = sync.Pool{
-	New: func() interface{} {
-		// TODO maybe different buffer size?
-		// benchmark pls
-		return make([]byte, 1<<15)
-	},
-}
-
 func (b *backend) handle(c1 net.Conn) {
 	b.log.Printf("accepted %v", c1.RemoteAddr())
+	defer log.Printf("disconnected %v", c1.RemoteAddr())
+	defer c1.Close()
 	c2, err := dialer.Dial("tcp", b.addr)
 	if err != nil {
 		b.log.Print(err)
-		c1.Close()
-		b.log.Printf("disconnected %v", c1.RemoteAddr())
 		return
 	}
-	first := make(chan<- struct{}, 1)
-	cp := func(dst net.Conn, src net.Conn) {
-		buf := bufferPool.Get().([]byte)
-		defer bufferPool.Put(buf)
-		// TODO use splice on linux
-		// TODO needs some timeout to prevent torshammer ddos
-		_, err := io.CopyBuffer(dst, src, buf)
-		select {
-		case first <- struct{}{}:
-			if err != nil {
-				b.log.Print(err)
-			}
-			dst.Close()
-			src.Close()
-			b.log.Printf("disconnected %v", c1.RemoteAddr())
-		default:
-		}
+	defer c2.Close()
+	err = netutil.Tunnel(c1, c2)
+	if err != nil {
+		b.log.Print(err)
 	}
-	go cp(c1, c2)
-	cp(c2, c1)
 }
