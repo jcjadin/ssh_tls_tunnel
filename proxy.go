@@ -53,7 +53,6 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 		config: &tls.Config{
 			// See golang/go#12895 for why.
 			PreferServerCipherSuites: true,
-			MinVersion:               tls.VersionTLS12,
 		},
 	}
 	p.config.GetCertificate = p.manager.GetCertificate
