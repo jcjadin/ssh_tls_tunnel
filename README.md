@@ -35,3 +35,4 @@ TODO:
 -----
 - [ ] Tests
 - [ ] Docs
+- [ ] For every single domain, every protocol should be defined. Perhaps open a issue for go tls package?
