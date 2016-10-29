@@ -15,7 +15,6 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/nhooyr/log"
-	"github.com/nhooyr/netutil"
 )
 
 type proxyConfig struct {
@@ -105,12 +104,30 @@ func contains(strs []string, s1 string) bool {
 }
 
 func (p *proxy) listenAndServe() error {
-	l, err := netutil.ListenTCPKeepAlive(":https")
+	l, err := net.Listen("tcp", ":https")
 	if err != nil {
 		return err
 	}
 	log.Printf("listening on %v", l.Addr())
-	return p.serve(l)
+	return p.serve(tcpKeepAliveListener{l.(*net.TCPListener)})
+}
+
+type tcpKeepAliveListener struct {
+	*net.TCPListener
+}
+
+func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
+	tc, err := l.AcceptTCP()
+	if err != nil {
+		return
+	}
+	if err = tc.SetKeepAlive(true); err != nil {
+		return
+	}
+	if err = tc.SetKeepAlivePeriod(time.Minute); err != nil {
+		return
+	}
+	return tc, nil
 }
 
 func (p *proxy) serve(l net.Listener) error {
