@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -159,12 +161,13 @@ func (p *proxy) rotateSessionTicketKeys(keys [][32]byte) {
 }
 
 func (p *proxy) handle(c net.Conn) {
+	log.Printf("accepted %v", c.RemoteAddr())
+	defer log.Printf("disconnected %v", c.RemoteAddr())
+	defer c.Close()
 	tlc := tls.Server(c, p.config)
 	if err := tlc.Handshake(); err != nil {
-		// TODO should tls library handle this?
+		// TODO should the TLS library handle prefix?
 		log.Printf("TLS handshake error from %v: %v", c.RemoteAddr(), err)
-		// TODO should this be deferred? See handle below.
-		c.Close()
 		return
 	}
 	cs := tlc.ConnectionState()
@@ -173,7 +176,6 @@ func (p *proxy) handle(c net.Conn) {
 	if !ok {
 		log.Printf("unable to find %q.%q for %v", cs.NegotiatedProtocol,
 			cs.ServerName, c.RemoteAddr())
-		c.Close()
 		return
 	}
 	b.handle(tlc)
@@ -189,17 +191,30 @@ var dialer = &net.Dialer{
 	KeepAlive: time.Minute,
 }
 
-func (b *backend) handle(c1 net.Conn) {
-	b.log.Printf("accepted %v", c1.RemoteAddr())
-	defer b.log.Printf("disconnected %v", c1.RemoteAddr())
-	defer c1.Close()
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 1<<16)
+	},
+}
+
+func (b *backend) handle(tlc *tls.Conn) {
+	b.log.Printf("accepted %v", tlc.RemoteAddr())
 	c2, err := dialer.Dial("tcp", b.addr)
 	if err != nil {
 		b.log.Print(err)
 		return
 	}
 	defer c2.Close()
-	if err = netutil.Tunnel(c1, c2); err != nil {
+	errc := make(chan error, 2)
+	cp := func(w io.Writer, r io.Reader) {
+		buf := bufferPool.Get().([]byte)
+		_, err := io.CopyBuffer(w, r, buf)
+		errc <- err
+		bufferPool.Put(buf)
+	}
+	go cp(struct{ io.Writer }{c2}, tlc)
+	go cp(tlc, struct{ io.Reader }{c2})
+	if err = <-errc; err != nil {
 		b.log.Print(err)
 	}
 }
