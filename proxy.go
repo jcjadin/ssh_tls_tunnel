@@ -20,77 +20,79 @@ import (
 type proxyConfig struct {
 	Email    string `json:"email"`
 	CacheDir string `json:"cacheDir"`
-	Protos   []struct {
-		Name  string            `json:"name"`
-		Hosts map[string]string `json:"hosts"`
-	} `json:"protos"`
-	DefaultProto string `json:"defaultProto"`
+	Hosts    map[string][]struct {
+		Name string `json:"name"`
+		Addr string `json:"addr"`
+	} `json:"hosts"`
 }
 
-// TODO custom config file
+type host struct {
+	protos map[string]*backend
+	config *tls.Config
+}
+
 type proxy struct {
-	// Map of protocol names to hostnames to backends.
-	backends map[string]map[string]*backend
-	manager  autocert.Manager
-	config   *tls.Config
+	hosts   map[string]*host
+	manager *autocert.Manager
+	config  *tls.Config
 }
 
 func newProxy(pc *proxyConfig) (*proxy, error) {
 	if pc.CacheDir == "" {
 		return nil, errors.New("empty or missing cacheDir")
 	}
-	p := &proxy{
-		backends: make(map[string]map[string]*backend),
-		manager: autocert.Manager{
-			Prompt: autocert.AcceptTOS,
-			Cache:  autocert.DirCache(pc.CacheDir),
-			Email:  pc.Email,
-			Client: &acme.Client{
-				HTTPClient: &http.Client{
-					Timeout: 15 * time.Second,
-				},
+	m := &autocert.Manager{
+		Prompt: autocert.AcceptTOS,
+		Cache:  autocert.DirCache(pc.CacheDir),
+		Email:  pc.Email,
+		Client: &acme.Client{
+			HTTPClient: &http.Client{
+				Timeout: 15 * time.Second,
 			},
 		},
+	}
+	p := &proxy{
+		hosts:   make(map[string]*host),
+		manager: m,
 		config: &tls.Config{
 			// See golang/go#12895 for why.
 			PreferServerCipherSuites: true,
+			GetCertificate:           m.GetCertificate,
 		},
 	}
-	p.config.GetCertificate = p.manager.GetCertificate
+	p.config.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if h, ok := p.hosts[hello.ServerName]; ok {
+			return h.config, nil
+		}
+		return nil, fmt.Errorf("unknown host %s", hello.ServerName)
+	}
 
-	if pc.DefaultProto == "" {
-		return nil, errors.New("defaultProto is empty or missing")
-	}
-	var hosts []string
-	for i, proto := range pc.Protos {
-		if proto.Name == "" {
-			return nil, fmt.Errorf("protos[%d].name is empty or missing", i)
+	var hostnameList []string
+	for hostname, protos := range pc.Hosts {
+		if hostname == "" {
+			return nil, fmt.Errorf("empty key in hosts")
 		}
-		if len(proto.Hosts) == 0 {
-			return nil, fmt.Errorf("protos[%d].hosts is empty or missing", i)
+		hostnameList = append(hostnameList, hostname)
+		if len(protos) == 0 {
+			return nil, fmt.Errorf("hosts.%s is missing protocols", hostname)
 		}
-		p.backends[proto.Name] = make(map[string]*backend)
-		for host, addr := range proto.Hosts {
-			if host == "" {
-				return nil, fmt.Errorf("empty key in protos[%d].hosts", i)
-			} else if addr == "" {
-				return nil, fmt.Errorf("protos[%d].hosts.%q is empty", i, host)
+		h := &host{
+			protos: make(map[string]*backend),
+			config: p.config.Clone(),
+		}
+		for i, proto := range protos {
+			h.config.NextProtos = append(h.config.NextProtos, proto.Name)
+			if proto.Addr == "" {
+				return nil, fmt.Errorf("hosts.%s[%d].addr is empty", hostname, i)
 			}
-			p.backends[proto.Name][host] = &backend{
-				addr: addr,
-				log:  log.Make(fmt.Sprintf("%q.%q", proto.Name, host)),
-			}
-			if !contains(hosts, host) {
-				hosts = append(hosts, host)
+			h.protos[proto.Name] = &backend{
+				addr: proto.Addr,
+				log:  log.Make(fmt.Sprintf("%s.%s", hostname, proto.Name)),
 			}
 		}
-		p.config.NextProtos = append(p.config.NextProtos, proto.Name)
+		p.hosts[hostname] = h
 	}
-	var ok bool
-	if p.backends[""], ok = p.backends[pc.DefaultProto]; !ok {
-		return nil, fmt.Errorf("defaultProto (%q) is not defined in protos", pc.DefaultProto)
-	}
-	p.manager.HostPolicy = autocert.HostWhitelist(hosts...)
+	p.manager.HostPolicy = autocert.HostWhitelist(hostnameList...)
 	return p, nil
 }
 
@@ -188,14 +190,7 @@ func (p *proxy) handle(c net.Conn) {
 		return
 	}
 	cs := tlc.ConnectionState()
-	// Protocol is guaranteed to exist.
-	b, ok := p.backends[cs.NegotiatedProtocol][cs.ServerName]
-	if !ok {
-		log.Printf("unable to find %q.%q for %v", cs.NegotiatedProtocol,
-			cs.ServerName, c.RemoteAddr())
-		return
-	}
-	b.handle(tlc)
+	p.hosts[cs.ServerName].protos[cs.NegotiatedProtocol].handle(tlc)
 }
 
 type backend struct {
