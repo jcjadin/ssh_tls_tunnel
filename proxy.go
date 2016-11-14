@@ -60,6 +60,12 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 			GetCertificate:           m.GetCertificate,
 		},
 	}
+	keys := make([][32]byte, 1, 96)
+	if _, err := rand.Read(keys[0][:]); err != nil {
+		return nil, fmt.Errorf("session ticket key generation failed: %v", err)
+	}
+	p.config.SetSessionTicketKeys(keys)
+	go p.rotateSessionTicketKeys(keys)
 	p.config.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 		if h, ok := p.hosts[hello.ServerName]; ok {
 			return h.config, nil
@@ -93,6 +99,7 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 		p.hosts[hostname] = h
 	}
 	p.manager.HostPolicy = autocert.HostWhitelist(hostnameList...)
+
 	return p, nil
 }
 
@@ -134,13 +141,6 @@ func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
 
 func (p *proxy) serve(l net.Listener) error {
 	defer l.Close()
-	keys := make([][32]byte, 1, 96)
-	if _, err := rand.Read(keys[0][:]); err != nil {
-		return fmt.Errorf("session ticket key generation failed: %v", err)
-	}
-	p.config.SetSessionTicketKeys(keys)
-	go p.rotateSessionTicketKeys(keys)
-
 	var delay time.Duration
 	for {
 		c, err := l.Accept()
