@@ -130,10 +130,12 @@ func (l tcpKeepAliveListener) Accept() (c net.Conn, err error) {
 	if err != nil {
 		return
 	}
-	if err = tc.SetKeepAlive(true); err != nil {
+	err = tc.SetKeepAlive(true)
+	if err != nil {
 		return
 	}
-	if err = tc.SetKeepAlivePeriod(time.Minute); err != nil {
+	err = tc.SetKeepAlivePeriod(time.Minute)
+	if err != nil {
 		return
 	}
 	return tc, nil
@@ -226,7 +228,8 @@ func (b *backend) handle(tlc *tls.Conn) {
 	}
 	go cp(struct{ io.Writer }{c2}, tlc)
 	go cp(tlc, struct{ io.Reader }{c2})
-	if err = <-errc; err != nil {
+	err = <-errc
+	if err != nil {
 		b.log.Print(err)
 	}
 }
