@@ -94,7 +94,7 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 			}
 			h.protos[proto.Name] = &backend{
 				addr: proto.Addr,
-				log:  log.Make(fmt.Sprintf("%s.%s", hostname, proto.Name)),
+				log:  log.Make(fmt.Sprintf("%q.%s", hostname, proto.Name)),
 			}
 		}
 		p.hosts[hostname] = h
