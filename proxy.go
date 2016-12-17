@@ -69,7 +69,7 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 		if h, ok := p.hosts[hello.ServerName]; ok {
 			return h.config, nil
 		}
-		return nil, fmt.Errorf("unknown host %s", hello.ServerName)
+		return p.config, nil
 	}
 
 	var hostnameList []string
