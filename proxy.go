@@ -11,10 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nhooyr/log"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
-
-	"github.com/nhooyr/log"
 )
 
 type proxyConfig struct {
@@ -76,7 +75,7 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 	var hostnameList []string
 	for hostname, protos := range pc.Hosts {
 		if hostname == "" {
-			return nil, fmt.Errorf("empty key in hosts")
+			return nil, errors.New("empty key in hosts")
 		}
 		hostnameList = append(hostnameList, hostname)
 		if len(protos) == 0 {
@@ -87,7 +86,9 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 			config: p.config.Clone(),
 		}
 		for i, proto := range protos {
-			h.config.NextProtos = append(h.config.NextProtos, proto.Name)
+			if proto != "" {
+				h.config.NextProtos = append(h.config.NextProtos, proto.Name)
+			}
 			if proto.Addr == "" {
 				return nil, fmt.Errorf("hosts.%s[%d].addr is empty", hostname, i)
 			}
@@ -101,15 +102,6 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 	p.manager.HostPolicy = autocert.HostWhitelist(hostnameList...)
 
 	return p, nil
-}
-
-func contains(strs []string, s1 string) bool {
-	for _, s2 := range strs {
-		if s1 == s2 {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *proxy) listenAndServe() error {
