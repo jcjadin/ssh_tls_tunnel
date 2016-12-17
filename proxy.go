@@ -86,7 +86,7 @@ func newProxy(pc *proxyConfig) (*proxy, error) {
 			config: p.config.Clone(),
 		}
 		for i, proto := range protos {
-			if proto != "" {
+			if proto.Name != "" {
 				h.config.NextProtos = append(h.config.NextProtos, proto.Name)
 			}
 			if proto.Addr == "" {
