@@ -184,7 +184,10 @@ func (p *proxy) handle(c net.Conn) {
 		return
 	}
 	cs := tlc.ConnectionState()
-	p.hosts[cs.ServerName].protos[cs.NegotiatedProtocol].handle(tlc)
+	host, ok := p.hosts[cs.ServerName]
+	if ok {
+		host.protos[cs.NegotiatedProtocol].handle(tlc)
+	}
 }
 
 type backend struct {
