@@ -3,7 +3,7 @@
 ## Example config
 ```json
 {
-	"email": "user\@example.com",
+	"email": "user@example.com",
 	"cacheDir": "/var/lib/tlsmuxd",
 	"hosts": {
 		"example.com": [{
