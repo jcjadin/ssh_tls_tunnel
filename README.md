@@ -37,3 +37,4 @@ TODO:
 -----
 - [ ] Tests
 - [ ] Docs
+- [ ] https://github.com/golang/go/issues/13451
