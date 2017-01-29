@@ -186,6 +186,9 @@ func (p *proxy) handle(c net.Conn) {
 	cs := tlc.ConnectionState()
 	host, ok := p.hosts[cs.ServerName]
 	if ok {
+		log.Print(cs)
+		log.Print(host.protos)
+		log.Print(host.protos[cs.NegotiatedProtocol])
 		host.protos[cs.NegotiatedProtocol].handle(tlc)
 	}
 }
