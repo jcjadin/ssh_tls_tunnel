@@ -189,7 +189,8 @@ func (p *proxy) handle(c net.Conn) {
 		if !cs.NegotiatedProtocolIsMutual {
 			cs.NegotiatedProtocol = ""
 		}
-		log.Printf("ola %s ==== %s", cs.NegotiatedProtocol,
+		log.Printf("ola %v ==== %v ==== %v ==== %v", cs.NegotiatedProtocolIsMutual,
+			cs.NegotiatedProtocol,
 			cs.NegotiatedProtocolIsMutual,
 			host.protos[cs.NegotiatedProtocol])
 		host.protos[cs.NegotiatedProtocol].handle(tlc)
