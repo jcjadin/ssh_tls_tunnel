@@ -186,10 +186,11 @@ func (p *proxy) handle(c net.Conn) {
 	cs := tlc.ConnectionState()
 	host, ok := p.hosts[cs.ServerName]
 	if ok {
-		b, ok := host.protos[cs.NegotiatedProtocol]
-		if ok {
-			b.handle(tlc)
-		}
+		log.Printf("ola %v ==== %v ==== %v ==== %v", cs.NegotiatedProtocolIsMutual,
+			cs.NegotiatedProtocol,
+			cs.NegotiatedProtocolIsMutual,
+			host.protos[cs.NegotiatedProtocol])
+		host.protos[cs.NegotiatedProtocol].handle(tlc)
 	}
 }
 
