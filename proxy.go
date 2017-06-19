@@ -188,7 +188,10 @@ func (p *proxy) handle(c net.Conn) {
 	if ok {
 		b, ok := host.protos[cs.NegotiatedProtocol]
 		if !ok {
-			b = host.protos[""]
+			b, ok = host.protos[""]
+			if !ok {
+				return
+			}
 		}
 		b.handle(tlc)
 	}
